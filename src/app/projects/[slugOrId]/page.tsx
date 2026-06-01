@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { 
-  getProjectDetail, Project, getRatingsForProject, Rating, 
+  Project, Rating, 
   saveRating, addToCart, toggleWishlist, getCarts, getWishlists, getUserOrders 
 } from "@/data/mockData";
 import { useAuth } from "@/context/AuthContext";
@@ -61,39 +61,65 @@ export default function ProjectDetailPage() {
     setLoading(true);
     const token = user?.token;
     const isAdmin = user?.role === "ADMIN";
+    const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
 
-    const prj = getProjectDetail(slugOrId, token, isAdmin);
-    
-    if (!prj) {
-      // Check if project actually exists as draft
-      const checkPrj = getProjectDetail(slugOrId, undefined, true);
-      if (checkPrj && checkPrj.status === "DRAFT" && !isAdmin) {
-        setAccessDenied(true);
-      }
-      setProject(null);
-    } else {
-      setProject(prj);
-      setRatings(getRatingsForProject(prj.id));
-      
-      // Check cart and wishlist
-      if (user && user.role === "USER") {
-        const carts = getCarts(user.id, user.token || "");
-        const wishes = getWishlists(user.id, user.token || "");
-        setInCart(carts.some((c) => c.id === prj.id));
-        setInWishlist(wishes.some((w) => w.id === prj.id));
+    const fetchProjectAndData = async () => {
+      try {
+        const headers: HeadersInit = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
 
-        // Check if project has been purchased and approved
-        const orders = getUserOrders(user.id, user.token || "");
-        const purchased = orders.some(
-          (o) => o.status === "APPROVED" && o.items.some((item) => item.projectId === prj.id)
-        );
-        setHasPurchased(purchased);
+        const res = await fetch(`${API_URL}/projects/${slugOrId}`, { headers });
+        const data = await res.json();
+
+        if (res.ok && data.data) {
+          const prj = data.data;
+          setProject(prj);
+          
+          // Fetch ratings
+          const ratingRes = await fetch(`${API_URL}/ratings/project/${prj.id}`);
+          if (ratingRes.ok) {
+            const ratingData = await ratingRes.json();
+            if (ratingData.code === 200 || ratingData.status === "success") setRatings(ratingData.data || []);
+          }
+          
+          // Check cart, wishlist, orders from mock for now to keep them working 
+          // or from API if endpoints exist. We will keep mock for user logic to ensure it doesn't break.
+          if (user && user.role === "USER") {
+            try {
+              const cRes = await fetch(`${API_URL}/carts?_t=${Date.now()}`, { headers, cache: 'no-store' });
+              if (cRes.ok) {
+                const cData = await cRes.json();
+                if (cData.data && cData.data.items) {
+                  setInCart(cData.data.items.some((i: any) => (i.projectId || i.project?.id) === prj.id));
+                }
+              }
+            } catch (err) {}
+
+            const wishes = getWishlists(String(user.id), user.token || "");
+            setInWishlist(wishes.some((w) => w.id === prj.id));
+
+            const orders = getUserOrders(String(user.id), user.token || "");
+            const purchased = orders.some(
+              (o) => o.status === "APPROVED" && o.items.some((item: any) => item.projectId === prj.id)
+            );
+            setHasPurchased(purchased);
+          }
+        } else {
+          if (res.status === 403 || data.code === 403) setAccessDenied(true);
+          setProject(null);
+        }
+      } catch (err) {
+        console.error("Error fetching project details", err);
+        setProject(null);
+      } finally {
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    };
+
+    fetchProjectAndData();
   }, [slugOrId, user]);
 
-  const handleToggleWishlist = () => {
+  const handleToggleWishlist = async () => {
     if (!project) return;
     if (!isAuthenticated) {
       setAuthModalReason("menambahkan project ini ke daftar Wishlist");
@@ -106,15 +132,37 @@ export default function ProjectDetailPage() {
     }
 
     if (user) {
-      const res = toggleWishlist(user.id, project.id, user.token || "");
-      setInWishlist(res.action === "added");
-      // Update counts
-      setProject(getProjectDetail(slugOrId, user.token, user.role === "ADMIN"));
-      showToast(res.action === "added" ? "Berhasil ditambahkan ke Wishlist!" : "Dihapus dari Wishlist.");
+      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+      try {
+        const res = await fetch(`${API_URL}/wishlists/${project.id}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${user.token || localStorage.getItem("studenthub_token")}`
+          }
+        });
+
+        if (res.ok) {
+          // Toggle local state optimistically
+          setInWishlist(!inWishlist);
+          
+          // Update counts - reload project
+          const pRes = await fetch(`${API_URL}/projects/${slugOrId}`, { headers: user.token ? { Authorization: `Bearer ${user.token}` } : {} });
+          const pData = await pRes.json();
+          if (pData.code === 200 && pData.data) {
+             setProject(pData.data);
+          }
+          
+          showToast(!inWishlist ? "Berhasil ditambahkan ke Wishlist!" : "Dihapus dari Wishlist.");
+        } else {
+          showToast("Gagal memperbarui wishlist.");
+        }
+      } catch (err) {
+        showToast("Terjadi kesalahan jaringan.");
+      }
     }
   };
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (!project) return;
     if (!isAuthenticated) {
       setAuthModalReason("menambahkan project ini ke Keranjang Belanja");
@@ -127,10 +175,25 @@ export default function ProjectDetailPage() {
     }
 
     if (user) {
-      const res = addToCart(user.id, project.id, user.token || "");
-      if (res) {
-        setInCart(true);
-        showToast("Berhasil ditambahkan ke Keranjang Belanja!");
+      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+      try {
+        const res = await fetch(`${API_URL}/carts/items`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.token || localStorage.getItem("studenthub_token")}`
+          },
+          body: JSON.stringify({ projectId: Number(project.id) || project.id, quantity: 1 })
+        });
+
+        if (res.ok) {
+          setInCart(true);
+          showToast("Berhasil ditambahkan ke Keranjang Belanja!");
+        } else {
+          showToast("Gagal menambahkan ke keranjang.");
+        }
+      } catch (err) {
+        showToast("Terjadi kesalahan jaringan.");
       }
     }
   };
@@ -142,7 +205,7 @@ export default function ProjectDetailPage() {
     try {
       saveRating({
         projectId: project.id,
-        userId: user.id,
+        userId: String(user.id),
         userName: user.name,
         rating: ratingVal,
         review: reviewText,
@@ -151,8 +214,15 @@ export default function ProjectDetailPage() {
       setReviewText("");
       setReviewSuccess(true);
       // Reload ratings and average rating
-      setRatings(getRatingsForProject(project.id));
-      setProject(getProjectDetail(slugOrId, user.token, user.role === "ADMIN"));
+      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+      fetch(`${API_URL}/ratings/project/${project.id}`)
+        .then(r => r.json())
+        .then(d => { if (d.success) setRatings(d.data || []); });
+      
+      fetch(`${API_URL}/projects/${slugOrId}`, { headers: user.token ? { Authorization: `Bearer ${user.token}` } : {} })
+        .then(r => r.json())
+        .then(d => { if (d.code === 200 && d.data) setProject(d.data); });
+
       showToast("Ulasan Anda berhasil dikirim!");
       setTimeout(() => setReviewSuccess(false), 2000);
     } catch (err) {
@@ -259,8 +329,8 @@ export default function ProjectDetailPage() {
               <div className="flex justify-between items-center flex-wrap gap-2">
                 <div className="flex gap-2">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs font-semibold text-slate-300">
-                    {getIcon(project.category)}
-                    {project.category}
+                    {getIcon(typeof project.category === "object" ? project.category.name : project.category)}
+                    {typeof project.category === "object" ? project.category.name : project.category}
                   </span>
                   {project.status === "DRAFT" && (
                     <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs font-semibold text-amber-400">
@@ -281,7 +351,7 @@ export default function ProjectDetailPage() {
                   {project.title}
                 </h1>
                 <p className="text-slate-400 text-xs sm:text-sm">
-                  Karya mahasiswa: <span className="text-slate-200 font-semibold">{project.studentName}</span> | Kampus: <span className="text-cyan-400 font-semibold">{project.university}</span>
+                  Karya mahasiswa: <span className="text-slate-200 font-semibold">{project.students && project.students.length > 0 ? project.students.map((s:any) => s.name).join(', ') : (project.studentName || 'Anonim')}</span> | Angkatan: <span className="text-cyan-400 font-semibold">{project.students?.[0]?.batch?.year || '2024'}</span>
                 </p>
               </div>
 
@@ -312,24 +382,24 @@ export default function ProjectDetailPage() {
 
               {ratings.length > 0 ? (
                 <div className="divide-y divide-slate-900/60 space-y-4">
-                  {ratings.map((review) => (
+                  {ratings.map((review: any) => (
                     <div key={review.id} className="pt-4 first:pt-0 space-y-2.5">
                       <div className="flex justify-between items-center">
                         <div>
-                          <p className="text-xs sm:text-sm font-semibold text-white">{review.userName}</p>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{review.createdAt}</p>
+                          <p className="text-xs sm:text-sm font-semibold text-white">{review.user?.name || review.userName || 'Pengguna'}</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{review.createdAt ? new Date(review.createdAt).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}</p>
                         </div>
                         <div className="flex gap-0.5 text-amber-400">
                           {Array.from({ length: 5 }).map((_, i) => (
                             <Star 
                               key={i} 
-                              className={`h-3.5 w-3.5 ${i < review.rating ? "fill-amber-400" : "text-slate-700"}`} 
+                              className={`h-3.5 w-3.5 ${i < (review.score || review.rating) ? "fill-amber-400" : "text-slate-700"}`} 
                             />
                           ))}
                         </div>
                       </div>
                       <p className="text-slate-300 text-xs sm:text-sm leading-relaxed bg-slate-900/10 p-3 rounded-lg border border-slate-900/50">
-                        {review.review}
+                        {review.comment || review.review}
                       </p>
                     </div>
                   ))}
@@ -389,40 +459,12 @@ export default function ProjectDetailPage() {
           <div className="lg:col-span-4 space-y-6">
             <div className="glass-panel rounded-2xl border border-white/5 p-6 space-y-6">
               <div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold leading-none">Harga Kode Sumber</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold leading-none">Harga Project</p>
                 <p className="text-2xl sm:text-3xl font-bold text-white font-mono mt-2 leading-none">
                   {formatPrice(project.price)}
                 </p>
               </div>
 
-              {/* Access status details */}
-              <div className="p-4 bg-slate-900/60 border border-slate-900 rounded-xl space-y-3.5 text-xs">
-                <div className="flex justify-between items-center text-slate-450 border-b border-slate-900 pb-2">
-                  <span>Status Kode</span>
-                  <span className={hasPurchased ? "text-emerald-450 font-bold" : "text-amber-450 font-bold"}>
-                    {hasPurchased ? "Terbuka (Milik Anda)" : "Terkunci"}
-                  </span>
-                </div>
-                
-                <div className="space-y-2">
-                  <p className="text-[10px] text-slate-550 uppercase tracking-wider font-bold">Tautan Github Repository</p>
-                  {hasPurchased ? (
-                    <a
-                      href={project.sourceCodeUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-cyan-400 font-semibold hover:underline truncate block"
-                    >
-                      {project.sourceCodeUrl}
-                    </a>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-slate-500 font-semibold bg-slate-950 p-2 rounded-lg border border-slate-900">
-                      <Lock className="h-3.5 w-3.5 text-slate-600" />
-                      <span>Repository Terkunci</span>
-                    </div>
-                  )}
-                </div>
-              </div>
 
               {/* Add to Wishlist / Cart */}
               <div className="space-y-3 pt-2">

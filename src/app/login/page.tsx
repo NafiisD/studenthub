@@ -34,9 +34,19 @@ export default function LoginPage() {
     try {
       const res = await login(email, password);
       if (res.success) {
-        // Redirection will be handled by useEffect
+        const userRole = res.user?.role || user?.role;
+        if (userRole === "ADMIN") {
+          router.push("/dashboard/admin");
+        } else {
+          router.push("/dashboard/customer");
+        }
       } else {
-        setErrorMsg(res.error || "Login gagal.");
+        const errText = res.error || "Login gagal.";
+        if (errText.toLowerCase().includes("berhasil ditambahkan")) {
+          setErrorMsg(""); // Menyembunyikan pesan sukses yang masuk ke error box
+        } else {
+          setErrorMsg(errText);
+        }
       }
     } catch (err) {
       setErrorMsg("Terjadi kesalahan sistem.");

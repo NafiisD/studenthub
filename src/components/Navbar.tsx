@@ -18,8 +18,8 @@ export default function Navbar() {
   useEffect(() => {
     if (isAuthenticated && user && user.role === "USER") {
       const updateCounts = () => {
-        const carts = getCarts(user.id, user.token || "");
-        const wishes = getWishlists(user.id, user.token || "");
+        const carts = getCarts(String(user.id), user.token || "");
+        const wishes = getWishlists(String(user.id), user.token || "");
         setCartCount(carts.length);
         setWishlistCount(wishes.length);
       };

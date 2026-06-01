@@ -89,26 +89,56 @@ function CustomerDashboardContent() {
   };
 
   // Sync data function
-  const syncData = () => {
+  const syncData = async () => {
     if (user && user.role === "USER") {
-      const token = user.token || "";
-      
-      // Load Wishlist
-      setWishlist(getWishlists(user.id, token));
+      const token = user.token || localStorage.getItem("studenthub_token") || "";
+      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+      const headers = { Authorization: `Bearer ${token}` };
+
+      try {
+        // Load Wishlist
+        const wRes = await fetch(`${API_URL}/wishlists`, { headers });
+        if (wRes.ok) {
+          const wData = await wRes.json();
+          if (wData.data) {
+            const parsedWishlist = wData.data.map((w: any) => w.project || w);
+            setWishlist(parsedWishlist);
+          }
+        }
+        
+        // Load Orders
+        const oRes = await fetch(`${API_URL}/orders`, { headers });
+        if (oRes.ok) {
+          const oData = await oRes.json();
+          if (oData.data) setOrders(oData.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard data", err);
+      }
       
       // Load Cart
-      setCart(getCarts(user.id, token));
-      
-      // Load Orders
-      setOrders(getUserOrders(user.id, token));
-      
+      try {
+        const cRes = await fetch(`${API_URL}/carts?_t=${Date.now()}`, { 
+          headers,
+          cache: 'no-store' 
+        });
+        if (cRes.ok) {
+          const cData = await cRes.json();
+          if (cData.data && Array.isArray(cData.data.items)) {
+            // Map items. If 'project' is missing, try to construct a dummy or fetch it, but usually backend provides it.
+            const mappedCart = cData.data.items.map((i: any) => i.project || i);
+            setCart(mappedCart);
+          } else {
+            setCart([]);
+          }
+        }
+      } catch (err) {}
       // Load Bank Accounts
       const activeBanks = getActiveBankAccounts(token);
       setBankAccounts(activeBanks);
       if (activeBanks.length > 0 && !selectedBankId) {
         setSelectedBankId(activeBanks[0].id);
       }
-
 
       // Sync Edit Profile values
       if (!profileName && !profileEmail) {
@@ -150,17 +180,47 @@ function CustomerDashboardContent() {
   };
 
   // 2. Remove Wishlist Item
-  const handleRemoveWishlist = (projectId: string) => {
-    toggleWishlist(user.id, projectId, user.token || "");
-    syncData();
-    showToast("Project dihapus dari Wishlist.");
+  const handleRemoveWishlist = async (projectId: string) => {
+    const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+    try {
+      const token = user?.token || localStorage.getItem("studenthub_token") || "";
+      const res = await fetch(`${API_URL}/wishlists/${projectId}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        await syncData();
+        showToast("Project dihapus dari Wishlist.");
+      } else {
+        showToast("Gagal menghapus project dari wishlist.");
+      }
+    } catch (err) {
+      showToast("Terjadi kesalahan jaringan.");
+    }
   };
 
   // 3. Remove Cart Item
-  const handleRemoveCart = (projectId: string) => {
-    removeFromCart(user.id, projectId, user.token || "");
-    syncData();
-    showToast("Project dihapus dari Keranjang.");
+  const handleRemoveCart = async (projectId: string) => {
+    const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+    try {
+      const token = user?.token || localStorage.getItem("studenthub_token") || "";
+      const res = await fetch(`${API_URL}/carts/items/${projectId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        await syncData();
+        showToast("Project dihapus dari Keranjang.");
+      } else {
+        showToast("Gagal menghapus dari keranjang.");
+      }
+    } catch (err) {
+      showToast("Terjadi kesalahan jaringan.");
+    }
   };
 
   // 4. Cart Checkout
@@ -169,7 +229,7 @@ function CustomerDashboardContent() {
       showToast("Pilih rekening pembayaran terlebih dahulu.");
       return;
     }
-    const order = checkoutCart(user.id, selectedBankId, user.token || "");
+    const order = checkoutCart(String(user.id), selectedBankId, user.token || "");
     if (order) {
       syncData();
       showToast("Checkout berhasil! Silakan bayar tagihan Anda.");
@@ -205,7 +265,7 @@ function CustomerDashboardContent() {
 
     saveRating({
       projectId: rateProject.projectId,
-      userId: user.id,
+      userId: String(user.id),
       userName: user.name,
       rating: ratingVal,
       review: ratingReview,
@@ -435,7 +495,7 @@ function CustomerDashboardContent() {
                       >
                         <div className="space-y-1.5">
                           <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded">
-                            {project.category}
+                            {typeof project.category === 'object' ? project.category?.name : project.category}
                           </span>
                           <h4 className="font-display font-semibold text-white text-sm sm:text-base line-clamp-1">{project.title}</h4>
                           <p className="text-slate-500 text-[10px] sm:text-xs">Oleh: {project.studentName} | {project.university}</p>
@@ -494,7 +554,7 @@ function CustomerDashboardContent() {
                         >
                           <div className="space-y-1">
                             <span className="px-2 py-0.5 bg-slate-900 border border-slate-850 text-slate-400 text-[9px] font-bold rounded">
-                              {item.category}
+                              {typeof item.category === 'object' ? item.category?.name : item.category}
                             </span>
                             <h4 className="font-semibold text-white text-xs sm:text-sm">{item.title}</h4>
                             <p className="text-[10px] text-slate-500">Oleh: {item.studentName}</p>

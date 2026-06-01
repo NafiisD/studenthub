@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { saveContact } from "@/data/mockData";
 import { Mail, MessageSquare, Send, CheckCircle2, User, AlertTriangle } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -21,9 +20,6 @@ export default function ContactPage() {
     setSuccess(false);
     setIsSubmitting(true);
 
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
     if (!name || !email || !message) {
       setError("Mohon isi seluruh bidang formulir.");
       setIsSubmitting(false);
@@ -31,11 +27,24 @@ export default function ContactPage() {
     }
 
     try {
-      saveContact({ name, email, message });
-      setSuccess(true);
-      setName("");
-      setEmail("");
-      setMessage("");
+      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+      const res = await fetch(`${API_URL}/contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, message }),
+      });
+      const data = await res.json();
+      const isSuccess = data.success === true || data.status === "success" || (res.ok && data.code >= 200 && data.code < 300);
+
+      if (res.ok && isSuccess) {
+        setSuccess(true);
+        setName("");
+        setEmail("");
+        setMessage("");
+      } else {
+        const errMsg = Array.isArray(data.message) ? data.message.join(", ") : (data.message || "Gagal mengirim pesan.");
+        setError(errMsg);
+      }
     } catch (err) {
       setError("Terjadi kesalahan saat mengirim pesan. Silakan coba lagi.");
     } finally {

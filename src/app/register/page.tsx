@@ -9,7 +9,7 @@ import Link from "next/link";
 export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<UserRole>("USER");
+  const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -24,15 +24,11 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      const res = await register(name, email, role);
+      const res = await register({ name, email, password });
       if (res.success) {
-        setSuccessMsg("Pendaftaran berhasil! Mengalihkan ke dashboard...");
+        setSuccessMsg("Pendaftaran berhasil! Mengalihkan ke halaman login...");
         setTimeout(() => {
-          if (role === "ADMIN") {
-            router.push("/dashboard/admin");
-          } else {
-            router.push("/dashboard/customer");
-          }
+          router.push("/login");
         }, 1500);
       } else {
         setErrorMsg(res.error || "Pendaftaran gagal.");
@@ -123,45 +119,26 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Role selection input */}
+          {/* Password input */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
-              Tipe Peran (Role)
+              Kata Sandi
             </label>
-            <div className="grid grid-cols-2 gap-4">
-              {/* USER Option */}
-              <button
-                type="button"
-                onClick={() => setRole("USER")}
-                className={`py-3 px-4 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition-all text-xs cursor-pointer ${
-                  role === "USER"
-                    ? "bg-cyan-500/10 border-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.15)] animate-glow-cyan"
-                    : "bg-slate-900/40 border-slate-800 text-slate-400 hover:border-slate-700"
-                }`}
-              >
-                <UserIcon className="h-5 w-5" />
-                <span className="font-semibold">User Biasa (USER)</span>
-              </button>
-              {/* ADMIN Option */}
-              <button
-                type="button"
-                onClick={() => setRole("ADMIN")}
-                className={`py-3 px-4 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition-all text-xs cursor-pointer ${
-                  role === "ADMIN"
-                    ? "bg-violet-500/10 border-violet-500 text-white shadow-[0_0_15px_rgba(139,92,246,0.15)] animate-glow-indigo"
-                    : "bg-slate-900/40 border-slate-800 text-slate-400 hover:border-slate-700"
-                }`}
-              >
-                <Shield className="h-5 w-5" />
-                <span className="font-semibold">Administrator (ADMIN)</span>
-              </button>
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                <Lock className="h-5 w-5" />
+              </span>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-900/60 border border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-slate-100 placeholder-slate-500 text-sm transition-all focus:outline-none"
+                placeholder="Masukkan kata sandi (min. 6 karakter)"
+                minLength={6}
+              />
             </div>
           </div>
-
-          {/* Dummy notice */}
-          <p className="text-[10px] text-slate-500 leading-relaxed text-center">
-            *Untuk kemudahan demo, kata sandi akun baru Anda akan otomatis diatur menjadi <span className="text-cyan-400 font-mono">password123</span>.
-          </p>
 
           {/* Submit button */}
           <button

@@ -3,6 +3,8 @@
 export interface Category {
   id: string;
   title: string;
+  name?: string;
+  slug?: string;
   description: string;
   iconName: string;
   count: string;
@@ -39,9 +41,11 @@ export interface Project {
   id: string;
   title: string;
   description: string;
-  category: string; // References Category title/ID
+  category: string | any; // References Category title/ID or full object from API
   price: number;
   studentName: string;
+  student?: { name: string; email?: string } | any; // API relation
+  students?: any[];
   university: string;
   studentId?: string; // Optional student link
   demoUrl?: string;
