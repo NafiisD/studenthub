@@ -51,57 +51,73 @@ export default function Hero() {
 
           {/* Interactive Floating Card Right Column */}
           <div className="lg:col-span-5 relative flex justify-center lg:justify-end">
-            <div className="relative w-full max-w-[450px] aspect-square rounded-2xl p-0.5 bg-gradient-to-tr from-cyan-500/20 via-slate-800/40 to-indigo-500/20 shadow-[0_0_50px_rgba(99,102,241,0.15)] group">
-              {/* Outer Glow */}
-              <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/10 via-transparent to-indigo-500/10 rounded-2xl blur-xl opacity-75"></div>
-              
-              {/* Main Visual Board */}
-              <div className="relative h-full w-full rounded-2xl bg-slate-950/80 backdrop-blur-2xl p-6 overflow-hidden flex flex-col justify-between border border-white/5">
-                {/* Header of Card (Mac style dots) */}
-                <div className="flex items-center justify-between pb-4 border-b border-slate-900">
-                  <div className="flex gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-red-500/80"></span>
-                    <span className="h-3 w-3 rounded-full bg-yellow-500/80"></span>
-                    <span className="h-3 w-3 rounded-full bg-green-500/80"></span>
-                  </div>
-                  <div className="text-xs text-slate-500 font-mono flex items-center gap-1.5">
-                    <Terminal className="h-3.5 w-3.5 text-cyan-400" />
-                    studenthub-terminal.sh
-                  </div>
-                </div>
+            <div className="relative w-full max-w-[460px]">
+              <div className="absolute -top-10 -right-8 h-40 w-40 rounded-full bg-cyan-500/15 blur-3xl"></div>
+              <div className="absolute -bottom-8 -left-6 h-32 w-32 rounded-full bg-indigo-500/15 blur-3xl"></div>
 
-                {/* Content - Interactive Code Display */}
-                <div className="flex-1 font-mono text-xs text-slate-400 py-6 space-y-3 overflow-hidden select-none">
-                  <p className="text-violet-400">$ git clone studenthub-project-1</p>
-                  <p className="text-slate-500">// Menghubungkan ke API StudentHub...</p>
-                  <p className="text-slate-300">
-                    <span className="text-cyan-400">const</span> project = await fetchProject(<span className="text-amber-300">"PRJ-081"</span>);
-                  </p>
-                  <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800/40 space-y-1">
-                    <p className="text-emerald-400">STATUS: VERIFIED BY ADMIN</p>
-                    <p className="text-slate-400">TITLE: Smart Agriculture IoT System</p>
-                    <p className="text-slate-400">MAHASISWA: ITB Bandung</p>
-                    <p className="text-indigo-400">PRICE: Rp 2.500.000</p>
+              <div className="relative rounded-3xl p-[2px] bg-gradient-to-tr from-cyan-500/30 via-slate-800/50 to-indigo-500/30 shadow-[0_0_60px_rgba(56,189,248,0.15)]">
+                <div className="rounded-3xl bg-slate-950/85 backdrop-blur-2xl border border-white/5 overflow-hidden">
+                  {/* Top ribbon */}
+                  <div className="px-6 py-4 flex items-center justify-between border-b border-slate-900/80 bg-slate-950/60">
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
+                      <Terminal className="h-3.5 w-3.5 text-cyan-400" />
+                      curated-project-feed
+                    </div>
+                    <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                      VERIFIED
+                    </span>
                   </div>
-                  <p className="text-slate-500">// Siap di-deploy ke produksi...</p>
-                  <p className="text-cyan-400">$ studenthub deploy --now</p>
-                  <p className="text-green-400 animate-pulse">✓ Deployment Berhasil! Terintegrasi Vercel</p>
-                </div>
 
-                {/* Footer of Card - Floating Interactive Stats */}
-                <div className="mt-auto pt-4 border-t border-slate-900 flex justify-between items-center bg-slate-900/30 -mx-6 -mb-6 p-6 rounded-b-2xl">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/30">
-                      <Play className="h-4 w-4 text-indigo-400 fill-indigo-400" />
+                  {/* Showcase */}
+                  <div className="p-6 space-y-5">
+                    <div className="flex items-start gap-4">
+                      <div className="h-12 w-12 rounded-2xl bg-gradient-to-tr from-cyan-500/20 to-indigo-500/20 border border-cyan-500/20 flex items-center justify-center">
+                        <Play className="h-5 w-5 text-cyan-400 fill-cyan-400" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-slate-500 uppercase tracking-wider">Project Unggulan</p>
+                        <h3 className="text-lg font-semibold text-white">Smart Agriculture IoT Suite</h3>
+                        <p className="text-xs text-slate-400">Kolaborasi Mahasiswa ITB x Telkom</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-slate-400 font-medium">Demo Project</p>
-                      <p className="text-xs text-white font-bold">120+ Mahasiswa Online</p>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="rounded-2xl bg-slate-900/60 border border-slate-900 p-3 text-center">
+                        <p className="text-[10px] text-slate-500 uppercase">Rating</p>
+                        <p className="text-sm font-bold text-white">4.9</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-900/60 border border-slate-900 p-3 text-center">
+                        <p className="text-[10px] text-slate-500 uppercase">Lisensi</p>
+                        <p className="text-sm font-bold text-white">IDR 2.5M</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-900/60 border border-slate-900 p-3 text-center">
+                        <p className="text-[10px] text-slate-500 uppercase">Deploy</p>
+                        <p className="text-sm font-bold text-emerald-400">Ready</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-900 bg-slate-900/40 p-4 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Integrasi API</span>
+                        <span className="text-cyan-400 font-semibold">Live</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-slate-900">
+                        <div className="h-2 w-[78%] rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500"></div>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Status sinkron: 3 endpoint aktif</p>
                     </div>
                   </div>
-                  <span className="text-[10px] text-cyan-400 font-semibold px-2 py-1 rounded bg-cyan-500/10 border border-cyan-500/20">
-                    LIVE PREVIEW
-                  </span>
+
+                  {/* Footer */}
+                  <div className="px-6 py-4 flex items-center justify-between border-t border-slate-900/80 bg-slate-950/60">
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      120+ mahasiswa online
+                    </div>
+                    <span className="text-[10px] text-cyan-400 font-semibold px-2 py-1 rounded bg-cyan-500/10 border border-cyan-500/20">
+                      LIVE PREVIEW
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

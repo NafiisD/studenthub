@@ -1,19 +1,48 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { 
-  Project, Category, 
-  addToCart, toggleWishlist, getCarts, getWishlists 
-} from "@/data/mockData";
 import { useAuth } from "@/context/AuthContext";
 import { 
   Search, SlidersHorizontal, ArrowUpRight, Globe, Brain, 
-  Cpu, Smartphone, X, Lock, CheckCircle2, Heart, ShoppingCart, Info, ShoppingBag
+  Cpu, Smartphone, X, Lock, CheckCircle2, Heart, ShoppingCart
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+
+// --- TYPE DEFINITIONS (Disuaikan dengan Skema Swagger Backend) ---
+interface Batch {
+  id: string | number;
+  year: string | number;
+}
+
+interface Student {
+  id: string | number;
+  name: string;
+  batch?: Batch;
+}
+
+interface Category {
+  id: string | number;
+  name?: string;
+  title?: string;
+  slug: string;
+}
+
+interface Project {
+  id: string;
+  title: string;
+  description: string;
+  thumbnail?: string;
+  price: number;
+  university: string;
+  studentName: string;
+  averageRating: number;
+  wishlistCount?: number;
+  slug?: string;
+  category: string | Category;
+  students?: Student[];
+}
 
 const getIcon = (category: string) => {
   const norm = category.toLowerCase();
@@ -26,18 +55,13 @@ const getIcon = (category: string) => {
 
 function MarketplaceContent() {
   const { user, isAuthenticated } = useAuth();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const categoryParam = searchParams?.get("category") || "";
   
-  // State variables
+  // State variables menggunakan tipe data asli backend
   const [projects, setProjects] = useState<Project[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("Semua");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   
-  // Cart & Wishlist local states for current user
+  // Cart & Wishlist local states
   const [userCartIds, setUserCartIds] = useState<string[]>([]);
   const [userWishlistIds, setUserWishlistIds] = useState<string[]>([]);
 
@@ -48,77 +72,56 @@ function MarketplaceContent() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authModalReason, setAuthModalReason] = useState("");
 
+  // Base URL API disesuaikan dengan routing prefiks Swagger (/api)
+  const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://studenthubbackend-production.up.railway.app/api";
+
   // Load catalog data
   useEffect(() => {
-    const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
-    
-    // 1. Fetch only PUBLISHED projects
+    // 1. Fetch only PUBLISHED projects dari real database
     fetch(`${API_URL}/projects/published`)
       .then(res => res.json())
       .then(data => {
-        if (data.code === 200 && data.data) {
+        if ((data.code === 200 || data.success) && data.data) {
           setProjects(data.data);
         }
       })
-      .catch(err => console.error("Error fetching projects", err));
+      .catch(err => console.error("Error fetching real projects", err));
 
-    // 2. Fetch categories
-    fetch(`${API_URL}/categories`)
-      .then(res => res.json())
-      .then(data => {
-        const isSuccess = data.success === true || data.status === "success" || (data.code >= 200 && data.code < 300);
-        if (isSuccess && data.data) {
-          setCategories(data.data);
-        }
-      })
-      .catch(err => console.error("Error fetching categories", err));
-  }, []);
+  }, [API_URL]);
 
-  // Sync selectedCategory with URL query param
-  useEffect(() => {
-    if (categoryParam && categories.length > 0) {
-      const matchedCat = categories.find((c: any) => c.slug === categoryParam);
-      if (matchedCat) {
-        setSelectedCategory(matchedCat.name || matchedCat.title || "Semua");
-      } else {
-        setSelectedCategory("Semua");
-      }
-    } else if (!categoryParam) {
-      setSelectedCategory("Semua");
-    }
-  }, [categoryParam, categories]);
-
-  // Sync cart & wishlist from database
+  // Sync cart & wishlist menggunakan Bearer Token Otorisasi Asli
   const syncUserActions = async () => {
     if (isAuthenticated && user && user.role === "USER") {
       const token = user.token || localStorage.getItem("studenthub_token") || "";
-      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
       
+      // Load Real Wishlist
       try {
-        const wRes = await fetch(`${API_URL}/wishlists`, { headers: { Authorization: `Bearer ${token}` } });
+        const wRes = await fetch(`${API_URL}/wishlists`, { 
+          headers: { Authorization: `Bearer ${token}` } 
+        });
         if (wRes.ok) {
           const wData = await wRes.json();
           if (wData.data) {
-            // Check if it's the wrapper or direct object
-            const ids = wData.data.map((w: any) => w.projectId || w.project?.id || w.id);
+            const ids = wData.data.map((w: any) => String(w.projectId || w.project?.id || w.id));
             setUserWishlistIds(ids);
           }
         }
       } catch (err) {
-        console.error("Gagal load wishlist dari API:", err);
+        console.error("Gagal load wishlist dari real API:", err);
       }
 
-      // Load Cart
+      // Load Real Cart
       try {
+        const headers = { Authorization: `Bearer ${token}` };
         const cRes = await fetch(`${API_URL}/carts?_t=${Date.now()}`, { headers, cache: 'no-store' });
         if (cRes.ok) {
           const cData = await cRes.json();
           if (cData.data && cData.data.items) {
-            setUserCartIds(cData.data.items.map((i: any) => i.projectId || i.project?.id));
+            setUserCartIds(cData.data.items.map((i: any) => String(i.projectId || i.project?.id)));
           }
         }
       } catch (err) {
-        console.error("Gagal load cart dari API:", err);
+        console.error("Gagal load cart dari real API:", err);
       }
     } else {
       setUserCartIds([]);
@@ -133,19 +136,12 @@ function MarketplaceContent() {
   // Filters logic
   const filteredProjects = projects.filter((project) => {
     const matchesSearch = 
-      project.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.university.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.studentName.toLowerCase().includes(searchQuery.toLowerCase());
-    const catName = typeof project.category === "object" ? project.category.name : String(project.category || "");
-    const catSlug = typeof project.category === "object" ? (project.category.slug || "") : "";
+      project.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      project.university?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      project.studentName?.toLowerCase().includes(searchQuery.toLowerCase());
       
-    const matchesCategory = 
-      selectedCategory === "Semua" || 
-      catName.toLowerCase() === selectedCategory.toLowerCase() ||
-      catSlug === categoryParam;
-
-    return matchesSearch && matchesCategory;
+    return matchesSearch;
   });
 
   const showToast = (message: string) => {
@@ -166,7 +162,6 @@ function MarketplaceContent() {
     }
 
     if (user) {
-      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
       try {
         const res = await fetch(`${API_URL}/wishlists/${projectId}`, {
           method: "POST",
@@ -176,23 +171,18 @@ function MarketplaceContent() {
         });
         
         if (res.ok) {
-          const data = await res.json();
-          // Assume the API toggles. 
-          // If we receive a created item or success, it means toggled.
           await syncUserActions();
           
-          // Reload projects to update wishlistCount
-          const pRes = await fetch(`${API_URL}/projects`);
+          // Sinkronisasi ulang data list project untuk memperbarui counter likes
+          const pRes = await fetch(`${API_URL}/projects/published`);
           const pData = await pRes.json();
           if (pData.data) {
-            // Need to filter published if API doesn't
-            const published = pData.data.filter((p: any) => p.status === "PUBLISHED" || p.status === "approved");
-            setProjects(published);
+            setProjects(pData.data);
           }
           
           showToast("Wishlist berhasil diperbarui!");
         } else {
-          showToast("Gagal memperbarui wishlist.");
+          showToast("Gagal memperbarui wishlist database.");
         }
       } catch (err) {
         showToast("Terjadi kesalahan jaringan.");
@@ -213,7 +203,6 @@ function MarketplaceContent() {
     }
 
     if (user) {
-      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
       try {
         const res = await fetch(`${API_URL}/carts/items`, {
           method: "POST",
@@ -221,14 +210,14 @@ function MarketplaceContent() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${user.token || localStorage.getItem("studenthub_token")}`
           },
-          body: JSON.stringify({ projectId: Number(projectId) || projectId, quantity: 1 })
+          body: JSON.stringify({ projectId: isNaN(Number(projectId)) ? projectId : Number(projectId), quantity: 1 })
         });
 
         if (res.ok) {
           await syncUserActions();
           showToast("Project berhasil ditambahkan ke Keranjang Belanja!");
         } else {
-          showToast("Gagal menambahkan ke keranjang.");
+          showToast("Gagal menambahkan ke keranjang database.");
         }
       } catch (err) {
         showToast("Terjadi kesalahan jaringan.");
@@ -249,10 +238,8 @@ function MarketplaceContent() {
       <Navbar />
       
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-12 relative">
-        {/* Subtle grid page top glow */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[300px] bg-cyan-500/5 rounded-full blur-[100px] pointer-events-none -z-10 animate-pulse-slow"></div>
         
-        {/* Toast Notification */}
         {toastMessage && (
           <div className="fixed bottom-6 right-6 z-50 glass-panel rounded-xl border border-cyan-500/30 px-5 py-3.5 bg-slate-950 shadow-[0_0_20px_rgba(6,182,212,0.2)] text-white text-xs sm:text-sm flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-5 duration-200">
             <CheckCircle2 className="h-4.5 w-4.5 text-cyan-400 animate-bounce" />
@@ -260,7 +247,6 @@ function MarketplaceContent() {
           </div>
         )}
 
-        {/* Section Heading */}
         <div className="mb-12 text-center lg:text-left space-y-3">
           <h1 className="font-display font-bold text-3xl sm:text-4xl md:text-5xl text-white">
             Katalog Proyek{" "}
@@ -273,10 +259,8 @@ function MarketplaceContent() {
           </p>
         </div>
 
-        {/* Search, Categories, and Filters Panel */}
-        <div className="mb-10 flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
-          {/* Search bar input */}
-          <div className="relative flex-grow max-w-lg">
+        <div className="mb-10 flex justify-center">
+          <div className="relative w-full max-w-2xl">
             <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
               <Search className="h-4.5 w-4.5" />
             </span>
@@ -288,47 +272,14 @@ function MarketplaceContent() {
               className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-900/60 border border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-slate-100 placeholder-slate-500 text-sm transition-all focus:outline-none"
             />
           </div>
-
-          {/* Categories Horizontal Tabs */}
-          <div className="flex overflow-x-auto gap-2 py-1 no-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
-            <button
-              onClick={() => {
-                setSelectedCategory("Semua");
-                router.push("/marketplace");
-              }}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all shrink-0 cursor-pointer ${
-                selectedCategory === "Semua"
-                  ? "bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-white border border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.1)]"
-                  : "bg-slate-900/40 border border-slate-850 text-slate-400 hover:text-white hover:border-slate-800"
-              }`}
-            >
-              Semua
-            </button>
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => {
-                  setSelectedCategory(cat.name || cat.title || "Semua");
-                  router.push(`/marketplace?category=${cat.slug || ''}`);
-                }}
-                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all shrink-0 cursor-pointer ${
-                  selectedCategory === (cat.name || cat.title)
-                    ? "bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-white border border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.1)]"
-                    : "bg-slate-900/40 border border-slate-850 text-slate-400 hover:text-white hover:border-slate-800"
-                }`}
-              >
-                {cat.name || cat.title}
-              </button>
-            ))}
-          </div>
         </div>
 
-        {/* Catalog Project Grid */}
         {filteredProjects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
             {filteredProjects.map((project) => {
-              const inWishlist = userWishlistIds.includes(project.id);
-              const inCart = userCartIds.includes(project.id);
+              const inWishlist = userWishlistIds.includes(String(project.id));
+              const inCart = userCartIds.includes(String(project.id));
+              const projectCategoryName = typeof project.category === "object" ? project.category.name : project.category;
 
               return (
                 <div
@@ -337,7 +288,6 @@ function MarketplaceContent() {
                   className="group flex flex-col justify-between rounded-2xl border border-slate-900 bg-slate-950/45 p-6 transition-all duration-300 hover:scale-102 hover:border-slate-850 hover:bg-slate-900/10 cursor-pointer relative overflow-hidden"
                 >
                   <div>
-                    {/* Project Thumbnail Image */}
                     {project.thumbnail && (
                       <div className="w-full aspect-video rounded-xl overflow-hidden mb-4 border border-slate-900 relative">
                         <img 
@@ -346,7 +296,6 @@ function MarketplaceContent() {
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
                         />
                         <div className="absolute top-2 right-2 flex gap-1.5 z-10">
-                          {/* Wishlist Button Overlay */}
                           <button
                             onClick={(e) => handleToggleWishlist(project.id, e)}
                             className={`p-2 rounded-lg backdrop-blur-md border transition-all cursor-pointer ${
@@ -362,18 +311,16 @@ function MarketplaceContent() {
                       </div>
                     )}
 
-                    {/* Category & Badge Row */}
                     <div className="flex justify-between items-center mb-4">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/80 border border-slate-850 text-xs font-semibold text-slate-350">
-                        {getIcon(typeof project.category === "object" ? project.category.name : project.category)}
-                        {typeof project.category === "object" ? project.category.name : project.category}
+                        {getIcon(projectCategoryName || "")}
+                        {projectCategoryName}
                       </span>
                       <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider font-mono bg-cyan-500/5 px-2 py-0.5 rounded border border-cyan-500/10">
                         ⭐ {project.averageRating > 0 ? project.averageRating : "New"}
                       </span>
                     </div>
 
-                    {/* Title & Author */}
                     <h3 className="font-display font-bold text-lg text-white mb-2 group-hover:text-cyan-400 transition-colors">
                       {project.title}
                     </h3>
@@ -381,13 +328,11 @@ function MarketplaceContent() {
                       Oleh: {project.students && project.students.length > 0 ? project.students.map((s:any) => s.name).join(', ') : (project.studentName || 'Anonim')} | Angkatan {project.students?.[0]?.batch?.year || '2024'}
                     </p>
 
-                    {/* Description snippet */}
                     <p className="text-slate-400 text-xs sm:text-sm leading-relaxed mb-6 line-clamp-3">
                       {project.description}
                     </p>
                   </div>
 
-                  {/* Pricing & Call-To-Action Row */}
                   <div className="pt-4 border-t border-slate-900 flex justify-between items-center">
                     <div>
                       <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold leading-none">Harga Kode</p>
@@ -397,7 +342,6 @@ function MarketplaceContent() {
                     </div>
 
                     <div className="flex gap-2">
-                      {/* Cart Add Button */}
                       <button
                         onClick={(e) => handleAddToCart(project.id, e)}
                         className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
@@ -438,12 +382,8 @@ function MarketplaceContent() {
       {/* Project Detail Modal */}
       {selectedProject && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div 
-            className="fixed inset-0" 
-            onClick={() => setSelectedProject(null)}
-          ></div>
+          <div className="fixed inset-0" onClick={() => setSelectedProject(null)}></div>
           <div className="relative w-full max-w-2xl rounded-2xl bg-slate-950 border border-slate-900 p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-10 overflow-y-auto max-h-[90vh]">
-            {/* Close Button */}
             <button
               onClick={() => setSelectedProject(null)}
               className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-900/60 border border-slate-800"
@@ -451,12 +391,10 @@ function MarketplaceContent() {
               <X className="h-5 w-5" />
             </button>
 
-            {/* Modal Content */}
             <div className="space-y-6">
-              {/* Heading */}
               <div>
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900/80 border border-slate-800 text-xs font-semibold text-slate-350 mb-3">
-                  {getIcon(typeof selectedProject.category === "object" ? selectedProject.category.name : selectedProject.category)}
+                  {getIcon(typeof selectedProject.category === "object" ? (selectedProject.category.name || "") : selectedProject.category)}
                   {typeof selectedProject.category === "object" ? selectedProject.category.name : selectedProject.category}
                 </span>
                 <h2 className="font-display font-bold text-2xl sm:text-3xl text-white">
@@ -472,14 +410,12 @@ function MarketplaceContent() {
                 </div>
               </div>
 
-              {/* Thumbnail / Media Show */}
               {selectedProject.thumbnail && (
                 <div className="w-full aspect-video rounded-xl overflow-hidden border border-slate-900">
                   <img src={selectedProject.thumbnail} alt={selectedProject.title} className="w-full h-full object-cover" />
                 </div>
               )}
 
-              {/* Description */}
               <div className="space-y-2">
                 <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Deskripsi Lengkap</h4>
                 <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-line">
@@ -487,7 +423,6 @@ function MarketplaceContent() {
                 </p>
               </div>
 
-              {/* Category Row */}
               <div className="bg-slate-900/30 p-4 rounded-xl border border-slate-900">
                 <div>
                   <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Kategori Utama</p>
@@ -497,7 +432,6 @@ function MarketplaceContent() {
                 </div>
               </div>
 
-              {/* Price & Action button */}
               <div className="pt-6 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="text-center sm:text-left">
                   <p className="text-xs text-slate-500 uppercase tracking-widest leading-none">Total Pembayaran</p>
@@ -510,12 +444,12 @@ function MarketplaceContent() {
                   <button
                     onClick={(e) => handleToggleWishlist(selectedProject.id, e)}
                     className={`px-4 py-3.5 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
-                      userWishlistIds.includes(selectedProject.id)
+                      userWishlistIds.includes(String(selectedProject.id))
                         ? "bg-rose-500/10 border-rose-500/30 text-rose-450"
                         : "bg-slate-900/50 border-slate-850 text-slate-400 hover:text-white"
                     }`}
                   >
-                    <Heart className="h-4.5 w-4.5" fill={userWishlistIds.includes(selectedProject.id) ? "currentColor" : "none"} />
+                    <Heart className="h-4.5 w-4.5" fill={userWishlistIds.includes(String(selectedProject.id)) ? "currentColor" : "none"} />
                     <span className="text-xs font-semibold">Wishlist</span>
                   </button>
 
@@ -541,10 +475,7 @@ function MarketplaceContent() {
       {/* Guest Authentication Warning Modal */}
       {showAuthModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-          <div 
-            className="fixed inset-0" 
-            onClick={() => setShowAuthModal(false)}
-          ></div>
+          <div className="fixed inset-0" onClick={() => setShowAuthModal(false)}></div>
           <div className="relative w-full max-w-md rounded-2xl bg-slate-950 border border-slate-900 p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-10 text-center space-y-6">
             <div className="mx-auto w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
               <Lock className="h-6 w-6" />

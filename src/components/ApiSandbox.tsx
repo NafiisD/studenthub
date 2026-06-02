@@ -1,9 +1,22 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Terminal, X, Play, Code, CheckCircle, RefreshCw, Key, ShieldCheck } from "lucide-react";
-import { ApiLog } from "@/data/mockData";
+import { Terminal, X, Play, Code, Key, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+
+interface ApiLog {
+  id: string;
+  method: "GET" | "POST" | "PATCH" | "DELETE";
+  url: string;
+  headers?: Record<string, string>;
+  body?: any;
+  status: number;
+  statusText: string;
+  response: any;
+  timestamp: string;
+}
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
 
 export default function ApiSandbox() {
   const { user } = useAuth();
@@ -64,82 +77,27 @@ export default function ApiSandbox() {
     setIsExecuting(true);
     setPlaygroundResponse(null);
     setPlaygroundStatus(null);
-    
-    await new Promise((resolve) => setTimeout(resolve, 800));
 
     try {
-      const headers = customToken ? { Authorization: `Bearer ${customToken}` } : {};
-      const parsedBody = requestBody ? JSON.parse(requestBody) : null;
-      
-      // Simulate endpoint mapping and authorization guards
-      const tokenUser = decodeToken(customToken);
+      const [method, path] = selectedEndpoint.split(" ") as ["GET" | "POST" | "PATCH" | "DELETE", string];
+      const headers: Record<string, string> = {};
+      if (customToken) headers.Authorization = `Bearer ${customToken}`;
 
-      // Endpoint execution logic
-      let responseData: any = { message: "Simulated endpoint executed successfully." };
-      let status = 200;
-      let statusText = "OK";
+      const payload = requestBody ? JSON.parse(requestBody) : null;
+      const isJsonBody = payload !== null && method !== "GET" && method !== "DELETE";
+      if (isJsonBody) headers["Content-Type"] = "application/json";
 
-      const [method, path] = selectedEndpoint.split(" ");
+      const res = await fetch(`${API_BASE_URL}${path}`, {
+        method,
+        headers,
+        body: isJsonBody ? JSON.stringify(payload) : undefined,
+      });
 
-      // A. Public Access
-      if (path === "/projects" && method === "GET") {
-        responseData = { message: "Returns only projects with status PUBLISHED" };
-      } else if (path === "/categories" && method === "GET") {
-        responseData = { message: "Filter categories" };
-      } else if (path === "/tags" && method === "GET") {
-        responseData = { message: "Filter tags" };
-      } else if (path === "/contacts" && method === "POST") {
-        responseData = { message: "Inquiry message received by Admin" };
-        status = 201;
-        statusText = "Created";
-      }
-      
-      // B. Authenticated User (USER role) guard
-      else if (selectedEndpoint.startsWith("POST /wishlists") || 
-               selectedEndpoint.startsWith("GET /wishlists/my-wishlist") || 
-               selectedEndpoint.startsWith("POST /carts") || 
-               selectedEndpoint.startsWith("POST /orders/checkout") ||
-               selectedEndpoint.startsWith("POST /ratings")) {
-        
-        if (!customToken) {
-          status = 401;
-          statusText = "Unauthorized - Bearer token missing";
-          responseData = { error: "Authorization: Bearer <token> is required." };
-        } else if (tokenUser?.role !== "USER" && tokenUser?.role !== "ADMIN") {
-          status = 403;
-          statusText = "Forbidden - Requires Role USER";
-          responseData = { error: "Access Denied. Only authenticated USERs can interact." };
-        } else {
-          status = method === "POST" ? 201 : 200;
-          statusText = method === "POST" ? "Created" : "OK";
-          responseData = { message: `Simulated ${selectedEndpoint} success.`, user: tokenUser };
-        }
-      }
-      
-      // C. Admin Access (ADMIN role) guard
-      else if (selectedEndpoint.startsWith("POST /categories") || 
-               selectedEndpoint.startsWith("POST /projects") || 
-               selectedEndpoint.startsWith("GET /projects/all/admin") || 
-               selectedEndpoint.startsWith("POST /students") || 
-               selectedEndpoint.startsWith("PATCH /payment/verify")) {
-        
-        if (!customToken) {
-          status = 401;
-          statusText = "Unauthorized - Bearer token missing";
-          responseData = { error: "Authorization: Bearer <token> is required." };
-        } else if (tokenUser?.role !== "ADMIN") {
-          status = 403;
-          statusText = "Forbidden - Requires Role ADMIN";
-          responseData = { error: "Access Denied. Admin Guard active: @UseGuards(AuthGuard, RolesGuard) and @Role('ADMIN')" };
-        } else {
-          status = method === "POST" ? 201 : 200;
-          statusText = method === "POST" ? "Created" : "OK";
-          responseData = { message: `Simulated ${selectedEndpoint} successfully (Authorized ADMIN).`, user: tokenUser };
-        }
-      }
+      const contentType = res.headers.get("content-type") || "";
+      const responseData = contentType.includes("application/json") ? await res.json() : await res.text();
 
-      setPlaygroundStatus(status);
-      setPlaygroundStatusText(statusText);
+      setPlaygroundStatus(res.status);
+      setPlaygroundStatusText(res.statusText || (res.ok ? "OK" : "Error"));
       setPlaygroundResponse(responseData);
 
       // Log this playground request as well
@@ -149,9 +107,9 @@ export default function ApiSandbox() {
           method: method as any,
           url: path,
           headers: headers as any,
-          body: parsedBody,
-          status,
-          statusText,
+          body: payload,
+          status: res.status,
+          statusText: res.statusText || (res.ok ? "OK" : "Error"),
           response: responseData,
           timestamp: new Date().toLocaleTimeString(),
         };
@@ -163,18 +121,9 @@ export default function ApiSandbox() {
     } catch (e: any) {
       setPlaygroundStatus(400);
       setPlaygroundStatusText("Bad Request");
-      setPlaygroundResponse({ error: "Invalid Request payload JSON format." });
+      setPlaygroundResponse({ error: "Invalid request payload or network error." });
     } finally {
       setIsExecuting(false);
-    }
-  };
-
-  const decodeToken = (token: string) => {
-    try {
-      const payload = JSON.parse(atob(token));
-      return payload;
-    } catch (e) {
-      return null;
     }
   };
 
@@ -185,21 +134,23 @@ export default function ApiSandbox() {
     
     // Auto preset default body
     if (endpoint.includes("POST /wishlists")) {
-      setRequestBody(JSON.stringify({ projectId: "prj-002" }, null, 2));
-    } else if (endpoint.includes("POST /carts")) {
-      setRequestBody(JSON.stringify({ projectId: "prj-003" }, null, 2));
+      setRequestBody("");
+    } else if (endpoint.includes("POST /carts/items")) {
+      setRequestBody(JSON.stringify({ projectId: 1, quantity: 1 }, null, 2));
     } else if (endpoint.includes("POST /orders/checkout")) {
-      setRequestBody(JSON.stringify({ bankAccountId: "bank-1" }, null, 2));
+      setRequestBody(JSON.stringify({ bankAccountId: 1, message: "Checkout order" }, null, 2));
     } else if (endpoint.includes("POST /ratings")) {
-      setRequestBody(JSON.stringify({ projectId: "prj-002", rating: 5, review: "Proyek luar biasa!" }, null, 2));
+      setRequestBody(JSON.stringify({ projectId: 1, score: 5, comment: "Proyek luar biasa!" }, null, 2));
     } else if (endpoint.includes("POST /contacts")) {
-      setRequestBody(JSON.stringify({ name: "Budi", email: "budi@gmail.com", message: "Tanya bisnis" }, null, 2));
+      setRequestBody(JSON.stringify({ name: "Budi", email: "budi@gmail.com", phone: "08123456789", message: "Tanya bisnis" }, null, 2));
     } else if (endpoint.includes("POST /categories")) {
-      setRequestBody(JSON.stringify({ title: "DevOps", description: "CI/CD & cloud deployment" }, null, 2));
+      setRequestBody(JSON.stringify({ name: "DevOps", slug: "devops" }, null, 2));
+    } else if (endpoint.includes("POST /tags")) {
+      setRequestBody(JSON.stringify({ name: "Docker" }, null, 2));
     } else if (endpoint.includes("POST /projects")) {
-      setRequestBody(JSON.stringify({ title: "Smart Locker (IoT)", category: "IoT", price: 1500000, university: "ITB" }, null, 2));
+      setRequestBody(JSON.stringify({ info: "Gunakan form-data sesuai CreateProjectDto" }, null, 2));
     } else if (endpoint.includes("POST /students")) {
-      setRequestBody(JSON.stringify({ name: "Ahmad", studentNumber: "13522999", majorId: "maj-1" }, null, 2));
+      setRequestBody(JSON.stringify({ nis: "13522999", name: "Ahmad", majorId: 1, batchId: 1 }, null, 2));
     } else if (endpoint.includes("PATCH /payment/verify")) {
       setRequestBody(JSON.stringify({ status: "APPROVED", adminNote: "Dana terverifikasi" }, null, 2));
     } else {
@@ -230,7 +181,7 @@ export default function ApiSandbox() {
               </div>
               <div>
                 <h3 className="font-display font-bold text-sm text-white">StudentHub API Inspector</h3>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">NestJS API Simulator Dashboard</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Live API Playground</p>
               </div>
             </div>
             <button
@@ -379,24 +330,27 @@ export default function ApiSandbox() {
                     >
                       <optgroup label="🌐 A. Akses Publik (Visitor / Belum Login)">
                         <option value="GET /projects">GET /projects</option>
-                        <option value="GET /projects/prj-002">GET /projects/:slugOrId</option>
+                        <option value="GET /projects/1">GET /projects/:slugOrId</option>
                         <option value="GET /categories">GET /categories</option>
                         <option value="GET /tags">GET /tags</option>
                         <option value="POST /contacts">POST /contacts</option>
                       </optgroup>
                       <optgroup label="👤 B. Akses Authenticated User (Role: USER)">
-                        <option value="POST /wishlists">POST /wishlists (Toggle)</option>
-                        <option value="GET /wishlists/my-wishlist">GET /wishlists/my-wishlist</option>
-                        <option value="POST /carts">POST /carts</option>
+                        <option value="POST /wishlists/1">POST /wishlists/:projectId</option>
+                        <option value="GET /wishlists">GET /wishlists</option>
+                        <option value="GET /wishlists/check/1">GET /wishlists/check/:projectId</option>
+                        <option value="POST /carts/items">POST /carts/items</option>
+                        <option value="DELETE /carts/items/1">DELETE /carts/items/:projectId</option>
                         <option value="POST /orders/checkout">POST /orders/checkout</option>
                         <option value="POST /ratings">POST /ratings</option>
                       </optgroup>
                       <optgroup label="👑 C. Akses Admin (Role: ADMIN)">
                         <option value="POST /categories">POST /categories</option>
+                        <option value="POST /tags">POST /tags</option>
                         <option value="POST /projects">POST /projects (Multipart)</option>
                         <option value="GET /projects/all/admin">GET /projects/all/admin</option>
                         <option value="POST /students">POST /students</option>
-                        <option value="PATCH /payment/verify">PATCH /payment/verify/:id</option>
+                        <option value="PATCH /payment/verify/1">PATCH /payment/verify/:id</option>
                       </optgroup>
                     </select>
                   </div>
@@ -423,7 +377,7 @@ export default function ApiSandbox() {
                         type="text"
                         value={customToken}
                         onChange={(e) => setCustomToken(e.target.value)}
-                        placeholder="Tempel token JWT tiruan di sini untuk disimulasikan..."
+                          placeholder="Tempel token JWT di sini..."
                         className="w-full pl-14 pr-4 py-2.5 rounded-xl bg-slate-900 border border-slate-850 text-[10px] text-slate-300 font-mono placeholder-slate-650 focus:outline-none"
                       />
                     </div>
@@ -450,7 +404,7 @@ export default function ApiSandbox() {
                     className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg hover:shadow-cyan-500/10 transition-all hover:scale-101 disabled:opacity-50"
                   >
                     <Play className="h-3.5 w-3.5" />
-                    <span>{isExecuting ? "Mengirim request tiruan..." : "Kirim Request (Simulate)"}</span>
+                    <span>{isExecuting ? "Mengirim request..." : "Kirim Request"}</span>
                   </button>
 
                   {/* Sandbox Response Output */}
@@ -478,8 +432,8 @@ export default function ApiSandbox() {
 
           {/* Sandbox Footer */}
           <div className="p-4 border-t border-slate-900 bg-slate-950/80 flex items-center justify-between text-[9px] font-mono text-slate-500">
-            <span className="flex items-center gap-1"><Key className="h-3 w-3 text-cyan-500" /> jwt-base64 simulation active</span>
-            <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3 text-violet-500" /> role-guards enabled</span>
+            <span className="flex items-center gap-1"><Key className="h-3 w-3 text-cyan-500" /> live request mode</span>
+            <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3 text-violet-500" /> backend guards apply</span>
           </div>
         </div>
       )}

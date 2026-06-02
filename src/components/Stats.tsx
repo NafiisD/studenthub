@@ -1,6 +1,72 @@
-import { statistics } from "@/data/mockData";
+"use client";
+
+import { useEffect, useState } from "react";
+import * as api from "@/lib/api";
+
+interface StatItem {
+  id: string;
+  label: string;
+  value: number;
+}
+
+const normalizeList = (payload: any): any[] => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.results)) return payload.results;
+  return [];
+};
 
 export default function Stats() {
+  const [statistics, setStatistics] = useState<StatItem[]>([
+    { id: "projects", label: "Total Proyek", value: 0 },
+    { id: "categories", label: "Kategori", value: 0 },
+    { id: "tags", label: "Tags", value: 0 },
+    { id: "ratings", label: "Rating Masuk", value: 0 },
+  ]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadStats = async () => {
+      try {
+        const [projectsRes, categoriesRes, tagsRes] = await Promise.all([
+          api.fetchPublishedProjects(),
+          api.fetchCategories(),
+          api.fetchTags(),
+        ]);
+
+        const projects = projectsRes.success ? normalizeList(projectsRes.data) : [];
+        const categories = categoriesRes.success ? normalizeList(categoriesRes.data) : [];
+        const tags = tagsRes.success ? normalizeList(tagsRes.data) : [];
+
+        let ratingsCount = 0;
+        const firstProjectId = projects[0]?.id;
+        if (firstProjectId != null) {
+          const ratingsRes = await api.fetchRatingsByProject(firstProjectId);
+          if (ratingsRes.success) {
+            ratingsCount = normalizeList(ratingsRes.data).length;
+          }
+        }
+
+        if (isMounted) {
+          setStatistics([
+            { id: "projects", label: "Total Proyek", value: projects.length },
+            { id: "categories", label: "Kategori", value: categories.length },
+            { id: "tags", label: "Tags", value: tags.length },
+            { id: "ratings", label: "Rating Masuk", value: ratingsCount },
+          ]);
+        }
+      } catch (error) {
+        console.error("Stats loadStats", error);
+      }
+    };
+
+    loadStats();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <section className="py-12 relative overflow-hidden">
       {/* Background Glow Divider */}

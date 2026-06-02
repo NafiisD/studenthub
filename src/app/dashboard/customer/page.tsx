@@ -9,11 +9,13 @@ import {
   getCarts, removeFromCart, checkoutCart, getUserOrders, getActiveBankAccounts,
   uploadPaymentProof, saveRating, Order, BankAccount, getRatingsForProject
 } from "@/data/mockData";
+import * as api from "@/lib/api";
 import { 
   PlusCircle, Upload, Download, CreditCard, TrendingUp, 
   Clock, CheckCircle2, XCircle, ExternalLink, Folder, 
-  Landmark, User, Mail, Lock, Heart, ShoppingCart, Trash2, ShieldCheck, AlertTriangle, FileText, Star
+  Landmark, User, Mail, Lock, Heart, ShoppingCart, Trash2, ShieldCheck, AlertTriangle, FileText, Star, Search
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
@@ -63,11 +65,17 @@ function CustomerDashboardContent() {
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // Selected Order Modal States
-  const [viewBillOrder, setViewBillOrder] = useState<Order | null>(null);
-  const [uploadProofOrder, setUploadProofOrder] = useState<Order | null>(null);
-  const [viewProofOrder, setViewProofOrder] = useState<Order | null>(null);
-  const [rateProject, setRateProject] = useState<{ projectId: string; title: string; orderId: string } | null>(null);
+  // Modal states
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authModalReason, setAuthModalReason] = useState("");
+  const [viewBillOrder, setViewBillOrder] = useState<any>(null);
+  const [uploadProofOrder, setUploadProofOrder] = useState<any>(null);
+  const [rateProject, setRateProject] = useState<any>(null);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  
+  // Real file upload state
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
 
   // checkout bank accounts selection
   const [selectedBankId, setSelectedBankId] = useState("");
@@ -76,9 +84,6 @@ function CustomerDashboardContent() {
   const [ratingVal, setRatingVal] = useState(5);
   const [ratingReview, setRatingReview] = useState("");
 
-  // Simulated Proof File Upload
-  const [simulatedProofFile, setSimulatedProofFile] = useState(false);
-  const [isUploadingProof, setIsUploadingProof] = useState(false);
 
   // Toast
   const [toastMessage, setToastMessage] = useState("");
@@ -134,10 +139,25 @@ function CustomerDashboardContent() {
         }
       } catch (err) {}
       // Load Bank Accounts
-      const activeBanks = getActiveBankAccounts(token);
-      setBankAccounts(activeBanks);
-      if (activeBanks.length > 0 && !selectedBankId) {
-        setSelectedBankId(activeBanks[0].id);
+      try {
+        const bRes = await api.fetchActiveBankAccounts(token);
+        if (bRes.data && Array.isArray(bRes.data)) {
+          const fetchedBanks = bRes.data.map((b: any) => ({
+            id: String(b.id),
+            bankName: b.bankName,
+            accountName: b.accountOwner || b.accountName || "Unknown",
+            accountNumber: b.accountNumber,
+            isActive: b.isActive
+          }));
+          setBankAccounts(fetchedBanks);
+          if (fetchedBanks.length > 0 && !selectedBankId) {
+            setSelectedBankId(fetchedBanks[0].id);
+          }
+        } else {
+          setBankAccounts([]);
+        }
+      } catch (err) {
+        setBankAccounts([]);
       }
 
       // Sync Edit Profile values
@@ -224,57 +244,121 @@ function CustomerDashboardContent() {
   };
 
   // 4. Cart Checkout
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (!selectedBankId) {
       showToast("Pilih rekening pembayaran terlebih dahulu.");
       return;
     }
-    const order = checkoutCart(String(user.id), selectedBankId, user.token || "");
-    if (order) {
-      syncData();
-      showToast("Checkout berhasil! Silakan bayar tagihan Anda.");
-      setActiveTab("orders");
-      setViewBillOrder(order);
-    } else {
-      showToast("Checkout gagal.");
+    const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+    try {
+      const token = user?.token || localStorage.getItem("studenthub_token") || "";
+      const res = await fetch(`${API_URL}/orders/checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ bankAccountId: Number(selectedBankId) })
+      });
+      const data = await res.json();
+      
+      const isSuccess = res.ok && (data.success === true || data.status === "success" || (data.code >= 200 && data.code < 300));
+      
+      if (isSuccess && data.data) {
+        syncData();
+        showToast("Checkout berhasil! Silakan bayar tagihan Anda.");
+        setActiveTab("orders");
+        setViewBillOrder(data.data);
+      } else {
+        showToast(data.message || "Checkout gagal. Keranjang Anda mungkin kosong.");
+      }
+    } catch (err) {
+      showToast("Terjadi kesalahan jaringan.");
     }
   };
 
-  // 5. Simulated Upload Proof Submission
+  // 4c. View Bill / Invoice
+  const handleViewBill = async (order: any) => {
+    const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+    const token = user?.token || localStorage.getItem("studenthub_token") || "";
+    try {
+      const res = await fetch(`${API_URL}/payment/proof/${order.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      
+      let proofs = [];
+      if (res.ok && data.data && Array.isArray(data.data)) {
+        proofs = data.data;
+      }
+
+      setViewBillOrder({ ...order, fetchedProofs: proofs });
+    } catch (err) {
+      setViewBillOrder(order);
+    }
+  };
+
+  // 5. Real Upload Proof Submission
   const handleUploadProofSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uploadProofOrder || !simulatedProofFile) return;
+    if (!uploadProofOrder || !proofFile) return;
 
     setIsUploadingProof(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+    const token = user?.token || localStorage.getItem("studenthub_token") || "";
 
-    const receiptImage = "/receipt-mock.jpg"; // mockup image
-    uploadPaymentProof(uploadProofOrder.id, receiptImage, user.token || "");
-    
-    setIsUploadingProof(false);
-    setSimulatedProofFile(false);
-    setUploadProofOrder(null);
-    syncData();
-    showToast("Bukti pembayaran berhasil diunggah! Status: PAID (Menunggu Verifikasi Admin).");
+    try {
+      const formData = new FormData();
+      formData.append("file", proofFile);
+
+      const res = await fetch(`${API_URL}/payment/upload-proof/${uploadProofOrder.id}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      const isSuccess = res.ok && (data.success === true || data.status === "success" || (data.code >= 200 && data.code < 300));
+      
+      if (isSuccess) {
+        showToast("Bukti pembayaran berhasil diunggah! Status: Menunggu Verifikasi Admin.");
+        syncData();
+        setUploadProofOrder(null);
+      } else {
+        showToast(data.message || "Gagal mengunggah bukti.");
+      }
+    } catch (err) {
+      showToast("Terjadi kesalahan jaringan.");
+    } finally {
+      setIsUploadingProof(false);
+      setProofFile(null);
+    }
   };
 
   // 6. Review Submit
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rateProject) return;
-
-    saveRating({
-      projectId: rateProject.projectId,
-      userId: String(user.id),
-      userName: user.name,
-      rating: ratingVal,
-      review: ratingReview,
-    }, user.token || "");
-
-    setRatingVal(5);
-    setRatingReview("");
-    setRateProject(null);
-    showToast("Terima kasih! Ulasan Anda berhasil diterbitkan.");
+    if (!rateProject || !user) return;
+    const userToken = user.token || (typeof window !== "undefined" ? localStorage.getItem("studenthub_token") || "" : "");
+    try {
+      const res = await api.createRating({
+        projectId: Number(rateProject.projectId),
+        score: ratingVal,
+        comment: ratingReview,
+      }, userToken);
+      if (res.success || res.code === 201) {
+        setRatingVal(5);
+        setRatingReview("");
+        setRateProject(null);
+        showToast("Terima kasih! Ulasan Anda berhasil diterbitkan.");
+      } else {
+        showToast(res.message || "Gagal mengirim ulasan.");
+      }
+    } catch (err) {
+      showToast("Terjadi kesalahan jaringan.");
+    }
   };
 
 
@@ -537,101 +621,139 @@ function CustomerDashboardContent() {
 
             {/* Tab 3: Keranjang Belanja (GET /carts/my-cart & DELETE /carts/:projectId & Checkout) */}
             {activeTab === "cart" && (
-              <div className="space-y-6">
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
                 <div>
                   <h3 className="font-display font-semibold text-lg text-white">Keranjang Belanja</h3>
                   <p className="text-slate-400 text-xs sm:text-sm">Kelola item pilihan Anda dan lakukan checkout sekaligus menjadi satu nomor Order.</p>
                 </div>
 
                 {cart.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-start">
                     {/* Cart Items list */}
-                    <div className="divide-y divide-slate-900/80 space-y-4">
-                      {cart.map((item) => (
-                        <div 
-                          key={item.id} 
-                          className="pt-4 first:pt-0 flex items-center justify-between gap-4"
-                        >
-                          <div className="space-y-1">
-                            <span className="px-2 py-0.5 bg-slate-900 border border-slate-850 text-slate-400 text-[9px] font-bold rounded">
-                              {typeof item.category === 'object' ? item.category?.name : item.category}
-                            </span>
-                            <h4 className="font-semibold text-white text-xs sm:text-sm">{item.title}</h4>
-                            <p className="text-[10px] text-slate-500">Oleh: {item.studentName}</p>
-                          </div>
-                          
-                          <div className="flex items-center gap-4">
-                            <span className="font-bold text-white font-mono text-xs sm:text-sm">{formatPrice(item.price)}</span>
-                            <button
-                              onClick={() => handleRemoveCart(item.id)}
-                              className="p-2 rounded-lg hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
-                              title="Hapus"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="lg:col-span-2 space-y-4">
+                      <AnimatePresence>
+                        {cart.map((item) => (
+                          <motion.div 
+                            key={item.id} 
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.2 }}
+                            className="flex items-center justify-between gap-4 p-4 rounded-xl bg-slate-900/40 border border-slate-900 hover:border-slate-800 transition-colors"
+                          >
+                            <div className="space-y-1">
+                              <h4 className="font-semibold text-white text-xs sm:text-sm">{item.title}</h4>
+                              <p className="text-[10px] text-slate-500">Oleh: {item.studentName}</p>
+                            </div>
+                            
+                            <div className="flex items-center gap-4">
+                              <span className="font-bold text-white font-mono text-xs sm:text-sm">{formatPrice(item.price)}</span>
+                              <button
+                                onClick={() => handleRemoveCart(item.id)}
+                                className="p-2 rounded-lg hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-all cursor-pointer hover:scale-105"
+                                title="Hapus"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
                     </div>
 
                     {/* Checkout Card Form */}
-                    <div className="p-6 rounded-xl bg-slate-900/40 border border-slate-900 space-y-5">
-                      <h4 className="font-semibold text-white text-sm uppercase tracking-wider">Formulir Checkout Pesanan</h4>
+                    <motion.div 
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.1, duration: 0.3 }}
+                      className="lg:col-span-1 p-6 rounded-2xl bg-slate-900/60 border border-slate-800 shadow-[0_10px_30px_rgba(0,0,0,0.5)] space-y-6 sticky top-6"
+                    >
+                      <h4 className="font-semibold text-white text-sm uppercase tracking-wider flex items-center gap-2">
+                        <ShoppingCart className="h-4 w-4 text-cyan-400" />
+                        Ringkasan Belanja
+                      </h4>
                       
                       {/* Pricing Summary */}
-                      <div className="flex justify-between items-center text-xs sm:text-sm border-b border-slate-900 pb-3">
-                        <span className="text-slate-400">Total Pembayaran ({cart.length} Item):</span>
-                        <span className="font-bold text-white font-mono text-base">
-                          {formatPrice(cart.reduce((s, item) => s + item.price, 0))}
-                        </span>
+                      <div className="space-y-3 border-b border-slate-900 pb-4">
+                        <div className="flex justify-between items-center text-xs text-slate-400">
+                          <span>Total Item:</span>
+                          <span className="font-medium text-white">{cart.length} Item</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-slate-300 font-medium">Total Harga:</span>
+                          <span className="font-bold text-cyan-400 font-mono text-base">
+                            {formatPrice(cart.reduce((s, item) => s + item.price, 0))}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Select Bank Account */}
                       <div className="space-y-2">
-                        <label className="text-xs font-semibold text-slate-450 block">Pilih Rekening Tujuan Transfer Resmi Admin:</label>
+                        <label className="text-xs font-semibold text-slate-400 block">Pilih Rekening Tujuan:</label>
                         {bankAccounts.length > 0 ? (
-                          <select
-                            value={selectedBankId}
-                            onChange={(e) => setSelectedBankId(e.target.value)}
-                            className="w-full px-3.5 py-3 rounded-xl bg-slate-950 border border-slate-850 focus:border-cyan-500 text-slate-200 text-xs focus:outline-none"
-                          >
-                            {bankAccounts.map((bank) => (
-                              <option key={bank.id} value={bank.id}>
-                                {bank.bankName} - {bank.accountNumber} ({bank.accountName})
-                              </option>
-                            ))}
-                          </select>
+                          <div className="relative">
+                            <Landmark className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                            <select
+                              value={selectedBankId}
+                              onChange={(e) => setSelectedBankId(e.target.value)}
+                              className="w-full pl-9 pr-4 py-3 rounded-xl bg-slate-950 border border-slate-850 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-slate-200 text-xs focus:outline-none appearance-none transition-all cursor-pointer"
+                            >
+                              <option value="" disabled>-- Pilih Rekening Pembayaran --</option>
+                              {bankAccounts.map((bank) => (
+                                <option key={bank.id} value={bank.id}>
+                                  {bank.bankName} - {bank.accountNumber}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         ) : (
-                          <p className="text-xs text-slate-500 animate-pulse">Memuat rekening aktif...</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-950 border border-slate-850 rounded-xl">
+                            <div className="h-3 w-3 rounded-full bg-cyan-500/50 animate-ping"></div>
+                            <p className="text-xs text-slate-500">Memuat rekening...</p>
+                          </div>
                         )}
                       </div>
 
                       {/* Checkout Action Button */}
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
                         onClick={handleCheckout}
-                        className="w-full relative group flex items-center justify-center gap-2 text-white font-semibold py-3.5 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all cursor-pointer"
+                        className="w-full relative group flex items-center justify-center gap-2 text-white font-semibold py-3.5 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all cursor-pointer mt-2"
                       >
-                        <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-indigo-500"></span>
+                        <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-indigo-500 group-hover:opacity-90 transition-opacity"></span>
                         <span className="relative z-10 text-xs sm:text-sm flex items-center gap-1.5">
                           <CheckCircle2 className="h-4.5 w-4.5" />
                           Checkout Sekarang
                         </span>
-                      </button>
-                    </div>
+                      </motion.button>
+                    </motion.div>
                   </div>
                 ) : (
-                  <div className="text-center py-16 bg-slate-950/20 rounded-2xl border border-dashed border-slate-900">
-                    <ShoppingCart className="h-10 w-10 text-slate-700 mx-auto mb-3" />
-                    <p className="text-slate-400 text-sm font-medium">Keranjang Belanja Anda kosong</p>
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="text-center py-16 bg-slate-950/40 rounded-2xl border border-dashed border-slate-800 flex flex-col items-center"
+                  >
+                    <div className="h-16 w-16 rounded-full bg-slate-900 flex items-center justify-center mb-4">
+                      <ShoppingCart className="h-8 w-8 text-slate-600" />
+                    </div>
+                    <p className="text-slate-300 text-sm font-medium">Keranjang Belanja Kosong</p>
+                    <p className="text-slate-500 text-xs mt-1 max-w-sm">Anda belum menambahkan project apapun ke dalam keranjang belanja.</p>
                     <Link
                       href="/marketplace"
-                      className="mt-3 inline-block text-xs text-cyan-400 hover:underline"
+                      className="mt-6 px-6 py-2.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500 hover:text-slate-950 rounded-full text-xs font-semibold transition-all"
                     >
-                      Jelajahi dan beli project di marketplace
+                      Eksplorasi Project
                     </Link>
-                  </div>
+                  </motion.div>
                 )}
-              </div>
+              </motion.div>
             )}
 
             {/* Tab 4: Daftar & Tagihan Order (GET /orders, Payment Proofs, Ratings) */}
@@ -666,23 +788,26 @@ function CustomerDashboardContent() {
                             </td>
                             <td className="py-4 font-mono font-bold">{formatPrice(order.totalPrice)}</td>
                             <td className="py-4 text-center">
-                              {order.status === "PENDING" && (
+                              {(order.status === "PENDING" || order.status === "PENDING_PAYMENT") && (
                                 <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">Belum Bayar</span>
                               )}
-                              {order.status === "PAID" && (
+                              {order.status === "WAITING_VERIFICATION" && (
                                 <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 animate-pulse">Menunggu Verifikasi</span>
                               )}
-                              {order.status === "APPROVED" && (
+                              {(order.status === "PAID" || order.status === "APPROVED") && (
                                 <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-500/10 text-emerald-450 border border-emerald-500/20">Lunas / APPROVED</span>
                               )}
                               {order.status === "REJECTED" && (
                                 <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-bold bg-rose-500/10 text-rose-455 border border-rose-500/20">Ditolak</span>
                               )}
+                              {order.status === "CANCELLED" && (
+                                <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-bold bg-slate-500/10 text-slate-400 border border-slate-500/20">Dibatalkan</span>
+                              )}
                             </td>
                             <td className="py-4 text-right space-y-1 sm:space-y-0 sm:space-x-1.5 flex flex-col sm:flex-row justify-end items-center">
                               {/* Check Bill */}
                               <button
-                                onClick={() => setViewBillOrder(order)}
+                                onClick={() => handleViewBill(order)}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-350 hover:text-white transition-colors cursor-pointer text-[10px] font-semibold"
                                 title="Lihat Tagihan"
                               >
@@ -690,7 +815,7 @@ function CustomerDashboardContent() {
                               </button>
 
                               {/* Upload Proof */}
-                              {order.status === "PENDING" && (
+                              {(order.status === "PENDING" || order.status === "PENDING_PAYMENT") && (
                                 <button
                                   onClick={() => setUploadProofOrder(order)}
                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500 hover:text-slate-950 transition-all cursor-pointer text-[10px] font-semibold"
@@ -699,18 +824,8 @@ function CustomerDashboardContent() {
                                 </button>
                               )}
 
-                              {/* View Proof */}
-                              {(order.status === "PAID" || order.status === "APPROVED" || order.status === "REJECTED") && order.receiptImage && (
-                                <button
-                                  onClick={() => setViewProofOrder(order)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-indigo-400 hover:text-white transition-colors cursor-pointer text-[10px] font-semibold"
-                                >
-                                  <CheckCircle2 className="h-3 w-3" /> Bukti Bayar
-                                </button>
-                              )}
-
-                              {/* Download Source Code (APPROVED only) */}
-                              {order.status === "APPROVED" && (
+                              {/* Download Source Code (PAID / APPROVED only) */}
+                              {(order.status === "PAID" || order.status === "APPROVED") && (
                                 <div className="flex gap-1.5">
                                   <button
                                     onClick={() => handleDownload(order.items[0]?.title || "Source Code")}
@@ -758,11 +873,11 @@ function CustomerDashboardContent() {
 
       {/* --- MODAL WIDGETS --- */}
 
-      {/* Modal 1: Check Bill Details */}
+      {/* Modal 1: Check Bill Details / Invoice */}
       {viewBillOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
           <div className="fixed inset-0" onClick={() => setViewBillOrder(null)}></div>
-          <div className="relative w-full max-w-md rounded-2xl bg-slate-950 border border-slate-900 p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-10 space-y-5">
+          <div className="relative w-full max-w-lg rounded-2xl bg-slate-950 border border-slate-900 p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-10 my-8">
             <button 
               onClick={() => setViewBillOrder(null)}
               className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-900/60 border border-slate-800 cursor-pointer"
@@ -770,46 +885,112 @@ function CustomerDashboardContent() {
               <XCircle className="h-5 w-5" />
             </button>
 
-            <div className="text-center">
-              <h3 className="font-display font-semibold text-lg text-white">Rincian Tagihan Belanja</h3>
-              <p className="text-slate-500 text-[10px] sm:text-xs font-mono mt-1">Order Code: {viewBillOrder.orderCode}</p>
+            {/* Invoice Header */}
+            <div className="text-center border-b border-dashed border-slate-800 pb-5 mb-5">
+              <h3 className="font-display font-semibold text-xl text-white uppercase tracking-wider">Nota Pembelian</h3>
+              <p className="text-cyan-400 text-xs font-mono mt-1 font-bold">INV-{viewBillOrder.orderCode}</p>
             </div>
 
-            <div className="space-y-3.5 pt-2">
-              <div className="space-y-1.5">
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Item yang Dibeli:</p>
-                <div className="bg-slate-900/40 border border-slate-900 rounded-xl p-3 space-y-1">
-                  {viewBillOrder.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-xs">
-                      <span className="text-slate-300 font-medium truncate max-w-[220px]">{item.title}</span>
-                      <span className="font-mono text-slate-400">{formatPrice(item.price)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Bank Accounts details */}
+            {/* Customer & Order Details */}
+            <div className="grid grid-cols-2 gap-4 text-[11px] sm:text-xs mb-6 text-slate-400">
               <div className="space-y-1">
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Tujuan Transfer Rekber resmi:</p>
-                <div className="p-3 bg-cyan-500/5 rounded-xl border border-cyan-500/10 text-xs text-cyan-400 space-y-1 font-mono">
-                  <p className="font-bold flex items-center gap-1 font-sans"><Landmark className="h-4 w-4" /> Bank Transfer</p>
-                  <p>1. Transfer senilai nominal tepat di bawah.</p>
-                  <p>2. Upload bukti transfer agar diverifikasi admin.</p>
-                </div>
+                <p className="uppercase tracking-widest text-[9px] text-slate-500 font-bold">Diterbitkan Kepada:</p>
+                <p className="text-white font-medium">{user.name}</p>
+                <p>{user.email}</p>
               </div>
-
-              <div className="flex justify-between items-center bg-slate-950 p-4 rounded-xl border border-slate-900">
-                <span className="text-xs text-slate-400 font-semibold">Total Tagihan:</span>
-                <span className="font-bold text-white font-mono text-lg">{formatPrice(viewBillOrder.totalPrice)}</span>
+              <div className="space-y-1 text-right">
+                <p className="uppercase tracking-widest text-[9px] text-slate-500 font-bold">Tanggal Order:</p>
+                <p className="text-white font-medium">{viewBillOrder.createdAt ? new Date(viewBillOrder.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : "-"}</p>
+                
+                <p className="uppercase tracking-widest text-[9px] text-slate-500 font-bold mt-2">Status Pembayaran:</p>
+                <p className={`font-bold ${
+                  (viewBillOrder.status === 'PAID' || viewBillOrder.status === 'APPROVED') ? 'text-emerald-400' :
+                  viewBillOrder.status === 'WAITING_VERIFICATION' ? 'text-cyan-400 animate-pulse' :
+                  viewBillOrder.status === 'REJECTED' ? 'text-rose-450' : 'text-yellow-400'
+                }`}>
+                  {viewBillOrder.status}
+                </p>
               </div>
             </div>
 
-            <div className="flex gap-3 pt-2">
+            {/* Items Table */}
+            <div className="space-y-2 mb-6">
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Rincian Pembelian:</p>
+              <div className="bg-slate-900/40 border border-slate-900 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-900/60 border-b border-slate-800 text-slate-400">
+                    <tr>
+                      <th className="py-2 px-3 font-medium">Produk / Project</th>
+                      <th className="py-2 px-3 text-right font-medium">Harga</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50">
+                    {viewBillOrder.items.map((item: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="py-2.5 px-3 text-slate-300 font-medium">{item.title}</td>
+                        <td className="py-2.5 px-3 font-mono text-slate-400 text-right">{formatPrice(item.price)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-900/80 border-t border-slate-800">
+                    <tr>
+                      <td className="py-3 px-3 text-slate-400 font-semibold text-right">Total Tagihan:</td>
+                      <td className="py-3 px-3 font-bold text-white font-mono text-right text-sm">{formatPrice(viewBillOrder.totalPrice)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Payment Proof Section (If exists) */}
+            {viewBillOrder.fetchedProofs && viewBillOrder.fetchedProofs.length > 0 ? (
+              <div className="space-y-2 mb-6">
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold border-t border-slate-800 pt-4 mt-2">Bukti Pembayaran Terlampir:</p>
+                <div className="flex gap-4 items-start bg-slate-900/30 p-3 rounded-xl border border-slate-800/50">
+                  <div 
+                    className="h-20 w-16 sm:h-24 sm:w-20 shrink-0 rounded-lg overflow-hidden border border-slate-700 cursor-pointer group relative"
+                    onClick={() => setZoomedImage(viewBillOrder.fetchedProofs[0].fileUrl)}
+                  >
+                    <img 
+                      src={viewBillOrder.fetchedProofs[0].fileUrl} 
+                      alt="Bukti Transfer" 
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" 
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Search className="h-4 w-4 text-white" />
+                    </div>
+                  </div>
+                  <div className="space-y-1 py-1">
+                    <p className="text-xs text-slate-300 font-medium">File Bukti Terunggah</p>
+                    <p className="text-[10px] text-slate-500 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                      Telah dilampirkan oleh Customer
+                    </p>
+                    {viewBillOrder.fetchedProofs[0].adminNote && (
+                      <div className="mt-2 text-[10px] bg-red-500/10 text-red-400 px-2 py-1.5 rounded border border-red-500/20 inline-block">
+                        <span className="font-bold">Catatan Admin:</span> {viewBillOrder.fetchedProofs[0].adminNote}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Instructions if no proof yet */
+              <div className="space-y-1 mb-6">
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Instruksi Pembayaran:</p>
+                <div className="p-3 bg-cyan-500/5 rounded-xl border border-cyan-500/10 text-xs text-cyan-400 space-y-1.5 font-mono">
+                  <p className="font-bold flex items-center gap-1.5 font-sans"><Landmark className="h-4 w-4" /> Transfer Bank Rekber</p>
+                  <p className="text-slate-400 font-sans leading-relaxed">Silakan lakukan transfer sebesar nominal total di atas ke rekening tujuan, lalu <span className="text-white font-semibold">unggah bukti bayar</span> pada menu "Unggah Bukti" agar pesanan Anda dapat diproses oleh Admin.</p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-4 border-t border-slate-800">
               <button
                 onClick={() => setViewBillOrder(null)}
-                className="w-full py-3 rounded-xl border border-slate-850 text-slate-450 hover:text-white bg-slate-900/30 hover:bg-slate-900/60 transition-colors text-xs font-semibold cursor-pointer"
+                className="w-full py-3 rounded-xl border border-slate-850 text-slate-300 hover:text-white bg-slate-900/30 hover:bg-slate-900/80 transition-colors text-xs font-semibold cursor-pointer flex items-center justify-center gap-2"
               >
-                Tutup Tagihan
+                <CheckCircle2 className="h-4 w-4" /> Tutup Nota
               </button>
             </div>
           </div>
@@ -841,31 +1022,33 @@ function CustomerDashboardContent() {
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-300 block">Bukti Transfer Sukses</label>
-                {simulatedProofFile ? (
+                {proofFile ? (
                   <div className="flex items-center justify-between p-3.5 rounded-xl border border-emerald-500/25 bg-emerald-500/5 text-xs text-emerald-400 font-semibold font-mono">
-                    <span className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4.5 w-4.5 text-emerald-400" />
-                      receipt_transfer_proof.jpg (240 KB)
+                    <span className="flex items-center gap-2 truncate pr-2">
+                      <CheckCircle2 className="h-4.5 w-4.5 text-emerald-400 shrink-0" />
+                      {proofFile.name} ({(proofFile.size / 1024).toFixed(0)} KB)
                     </span>
                     <button 
                       type="button" 
-                      onClick={() => setSimulatedProofFile(false)}
-                      className="text-[10px] text-slate-500 hover:text-red-400 uppercase font-bold"
+                      onClick={() => setProofFile(null)}
+                      className="text-[10px] text-slate-500 hover:text-red-400 uppercase font-bold shrink-0"
                     >
                       Batal
                     </button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => setSimulatedProofFile(true)}
-                    className="w-full flex flex-col items-center justify-center border border-dashed border-slate-800 hover:border-cyan-500/30 bg-slate-900/30 p-6 rounded-xl text-center transition-colors cursor-pointer group"
-                  >
+                  <label className="w-full flex flex-col items-center justify-center border border-dashed border-slate-800 hover:border-cyan-500/30 bg-slate-900/30 p-6 rounded-xl text-center transition-colors cursor-pointer group">
                     <span className="text-xs font-semibold text-slate-300 group-hover:text-cyan-400 transition-colors">
-                      Simulasikan Pilih File Bukti
+                      Pilih File Bukti Pembayaran
                     </span>
-                    <span className="text-[10px] text-slate-550 mt-1">Klik untuk mensimulasikan foto/screenshot bukti pembayaran</span>
-                  </button>
+                    <span className="text-[10px] text-slate-550 mt-1">Klik untuk memilih foto/screenshot dari perangkat Anda</span>
+                    <input 
+                      type="file" 
+                      accept="image/*"
+                      onChange={(e) => setProofFile(e.target.files ? e.target.files[0] : null)}
+                      className="hidden" 
+                    />
+                  </label>
                 )}
               </div>
 
@@ -879,7 +1062,7 @@ function CustomerDashboardContent() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isUploadingProof || !simulatedProofFile}
+                  disabled={isUploadingProof || !proofFile}
                   className="w-2/3 relative group flex items-center justify-center gap-2 text-white font-semibold py-3 rounded-xl overflow-hidden shadow-lg disabled:opacity-50 transition-all cursor-pointer"
                 >
                   <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-indigo-500"></span>
@@ -893,54 +1076,6 @@ function CustomerDashboardContent() {
         </div>
       )}
 
-      {/* Modal 3: View Proof Detail */}
-      {viewProofOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="fixed inset-0" onClick={() => setViewProofOrder(null)}></div>
-          <div className="relative w-full max-w-md rounded-2xl bg-slate-950 border border-slate-900 p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-10 space-y-5 text-center">
-            <button 
-              onClick={() => setViewProofOrder(null)}
-              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-900/60 border border-slate-800 cursor-pointer"
-            >
-              <XCircle className="h-5 w-5" />
-            </button>
-
-            <div>
-              <h3 className="font-display font-semibold text-lg text-white">Bukti Transfer Pembayaran</h3>
-              <p className="text-slate-500 text-[10px] sm:text-xs font-mono">Kode Order: {viewProofOrder.orderCode}</p>
-            </div>
-
-            {/* Receipt Doc Box */}
-            <div className="aspect-[3/4] max-w-[260px] mx-auto rounded-xl border border-slate-900 bg-slate-900/60 flex flex-col justify-center items-center p-6 space-y-4">
-              <div className="p-4 rounded-full bg-emerald-500/10 text-emerald-400">
-                <ShieldCheck className="h-8 w-8 text-emerald-400" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs font-mono font-bold text-white">BUKTI TRANSFER SUKSES</p>
-                <p className="text-[10px] text-slate-400">Simulasi Dokumen Diterima</p>
-                <p className="text-xs font-mono font-bold text-emerald-400 pt-1">{formatPrice(viewProofOrder.totalPrice)}</p>
-              </div>
-              <p className="text-[9px] text-slate-500">Bukti pembayaran saat ini sedang ditinjau dan divalidasi oleh Administrator.</p>
-            </div>
-
-            {viewProofOrder.adminNote && (
-              <div className="p-3 bg-red-500/5 rounded-xl border border-red-500/10 text-left text-xs text-red-400 space-y-1">
-                <p className="font-bold">Catatan Administrator:</p>
-                <p>{viewProofOrder.adminNote}</p>
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setViewProofOrder(null)}
-                className="w-full py-3 rounded-xl border border-slate-850 text-slate-450 hover:text-white bg-slate-900/30 text-xs font-semibold cursor-pointer"
-              >
-                Tutup Tampilan
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Modal 4: Rate & Review */}
       {rateProject && (
@@ -1004,6 +1139,27 @@ function CustomerDashboardContent() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Image Zoom Modal */}
+      {zoomedImage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="absolute inset-0 cursor-pointer" onClick={() => setZoomedImage(null)}></div>
+          <button 
+            onClick={() => setZoomedImage(null)}
+            className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2 rounded-full text-slate-400 hover:text-white bg-slate-900/60 border border-slate-800 cursor-pointer z-10"
+          >
+            <XCircle className="h-6 w-6" />
+          </button>
+          
+          <div className="relative z-10 max-w-[90vw] max-h-[90vh]">
+            <img 
+              src={zoomedImage} 
+              alt="Zoomed Proof" 
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl border border-slate-800" 
+            />
           </div>
         </div>
       )}

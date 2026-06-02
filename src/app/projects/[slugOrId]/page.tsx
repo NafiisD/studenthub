@@ -2,10 +2,8 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { 
-  Project, Rating, 
-  saveRating, addToCart, toggleWishlist, getCarts, getWishlists, getUserOrders 
-} from "@/data/mockData";
+import { Project, Rating } from "@/data/mockData";
+import * as api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { 
   ArrowLeft, Globe, Brain, Cpu, Smartphone, Lock, 
@@ -85,24 +83,27 @@ export default function ProjectDetailPage() {
           // Check cart, wishlist, orders from mock for now to keep them working 
           // or from API if endpoints exist. We will keep mock for user logic to ensure it doesn't break.
           if (user && user.role === "USER") {
+            const userToken = user.token || (typeof window !== "undefined" ? localStorage.getItem("studenthub_token") || "" : "");
             try {
-              const cRes = await fetch(`${API_URL}/carts?_t=${Date.now()}`, { headers, cache: 'no-store' });
-              if (cRes.ok) {
-                const cData = await cRes.json();
-                if (cData.data && cData.data.items) {
-                  setInCart(cData.data.items.some((i: any) => (i.projectId || i.project?.id) === prj.id));
-                }
+              const [cartRes, wishRes, orderRes] = await Promise.all([
+                api.fetchMyCart(userToken),
+                api.fetchMyWishlist(userToken),
+                api.fetchOrders(userToken),
+              ]);
+              if (cartRes.data?.items && Array.isArray(cartRes.data.items)) {
+                setInCart(cartRes.data.items.some((i: any) => (i.projectId || i.project?.id) == prj.id));
+              }
+              if (Array.isArray(wishRes.data)) {
+                setInWishlist(wishRes.data.some((w: any) => (w.project?.id || w.projectId || w.id) == prj.id));
+              }
+              if (Array.isArray(orderRes.data)) {
+                const purchased = orderRes.data.some(
+                  (o: any) => o.status === "APPROVED" && Array.isArray(o.items) &&
+                    o.items.some((item: any) => (item.projectId || item.project?.id) == prj.id)
+                );
+                setHasPurchased(purchased);
               }
             } catch (err) {}
-
-            const wishes = getWishlists(String(user.id), user.token || "");
-            setInWishlist(wishes.some((w) => w.id === prj.id));
-
-            const orders = getUserOrders(String(user.id), user.token || "");
-            const purchased = orders.some(
-              (o) => o.status === "APPROVED" && o.items.some((item: any) => item.projectId === prj.id)
-            );
-            setHasPurchased(purchased);
           }
         } else {
           if (res.status === 403 || data.code === 403) setAccessDenied(true);
@@ -198,33 +199,33 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!project || !user) return;
-
+    const userToken = user.token || (typeof window !== "undefined" ? localStorage.getItem("studenthub_token") || "" : "");
     try {
-      saveRating({
-        projectId: project.id,
-        userId: String(user.id),
-        userName: user.name,
-        rating: ratingVal,
-        review: reviewText,
-      }, user.token || "");
+      const res = await api.createRating({
+        projectId: Number(project.id),
+        score: ratingVal,
+        comment: reviewText,
+      }, userToken);
 
-      setReviewText("");
-      setReviewSuccess(true);
-      // Reload ratings and average rating
-      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
-      fetch(`${API_URL}/ratings/project/${project.id}`)
-        .then(r => r.json())
-        .then(d => { if (d.success) setRatings(d.data || []); });
-      
-      fetch(`${API_URL}/projects/${slugOrId}`, { headers: user.token ? { Authorization: `Bearer ${user.token}` } : {} })
-        .then(r => r.json())
-        .then(d => { if (d.code === 200 && d.data) setProject(d.data); });
-
-      showToast("Ulasan Anda berhasil dikirim!");
-      setTimeout(() => setReviewSuccess(false), 2000);
+      if (res.success || res.code === 201) {
+        setReviewText("");
+        setReviewSuccess(true);
+        // Reload ratings and project to update averageRating
+        const [ratingRes, projRes] = await Promise.all([
+          api.fetchRatingsByProject(project.id),
+          api.fetchProjectBySlugOrId(String(slugOrId), userToken),
+        ]);
+        if (Array.isArray(ratingRes.data)) setRatings(ratingRes.data);
+        else if (ratingRes.data?.data) setRatings(ratingRes.data.data);
+        if (projRes.data) setProject(projRes.data);
+        showToast("Ulasan Anda berhasil dikirim!");
+        setTimeout(() => setReviewSuccess(false), 2000);
+      } else {
+        showToast(res.message || "Gagal mengirim ulasan.");
+      }
     } catch (err) {
       showToast("Gagal mengirim ulasan.");
     }

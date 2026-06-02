@@ -1,49 +1,67 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { navLinks, getCarts, getWishlists } from "@/data/mockData";
+import { useState, useEffect, useCallback } from "react";
+import * as api from "@/lib/api";
 import { Zap, Menu, X, User as UserIcon, LogOut, LayoutDashboard, ShoppingCart, Heart } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+
+interface NavLinkItem {
+  label: string;
+  href: string;
+}
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [wishlistCount, setWishlistCount] = useState(0);
+  const [navLinks, setNavLinks] = useState<NavLinkItem[]>([]);
   
   const { user, isAuthenticated, logout } = useAuth();
 
-  // Load cart & wishlist count
   useEffect(() => {
-    if (isAuthenticated && user && user.role === "USER") {
-      const updateCounts = () => {
-        const carts = getCarts(String(user.id), user.token || "");
-        const wishes = getWishlists(String(user.id), user.token || "");
-        setCartCount(carts.length);
-        setWishlistCount(wishes.length);
-      };
-      
-      updateCounts();
-      // Listen to api logs to update counts in real time, ignoring GET requests to avoid infinite recursion loops
-      const listener = (newLog?: any) => {
-        if (newLog && newLog.method === "GET") return;
-        updateCounts();
-      };
-      if (!(window as any).studenthub_api_listeners) {
-        (window as any).studenthub_api_listeners = [];
-      }
+    const baseLinks: NavLinkItem[] = [{ label: "Marketplace", href: "/marketplace" }];
+    setNavLinks(baseLinks);
+  }, []);
+
+  const fetchCounts = useCallback(async () => {
+    if (!isAuthenticated || !user || user.role !== "USER") {
+      setCartCount(0);
+      setWishlistCount(0);
+      return;
+    }
+    const token = user.token || (typeof window !== "undefined" ? localStorage.getItem("studenthub_token") || "" : "");
+    try {
+      const [cartRes, wishRes] = await Promise.all([
+        api.fetchMyCart(token),
+        api.fetchMyWishlist(token),
+      ]);
+      if (cartRes.data?.items && Array.isArray(cartRes.data.items)) setCartCount(cartRes.data.items.length);
+      else if (Array.isArray(cartRes.data)) setCartCount(cartRes.data.length);
+      if (Array.isArray(wishRes.data)) setWishlistCount(wishRes.data.length);
+    } catch (err) {
+      console.error("Navbar fetchCounts", err);
+    }
+  }, [isAuthenticated, user]);
+
+  useEffect(() => {
+    fetchCounts();
+    // Listen to mutations from other components to refresh counts
+    const listener = (newLog?: any) => {
+      if (newLog && newLog.method === "GET") return;
+      fetchCounts();
+    };
+    if (typeof window !== "undefined") {
+      if (!(window as any).studenthub_api_listeners) (window as any).studenthub_api_listeners = [];
       (window as any).studenthub_api_listeners.push(listener);
       return () => {
-        (window as any).studenthub_api_listeners = (window as any).studenthub_api_listeners.filter(
+        (window as any).studenthub_api_listeners = ((window as any).studenthub_api_listeners || []).filter(
           (l: any) => l !== listener
         );
       };
-    } else {
-      setCartCount(0);
-      setWishlistCount(0);
     }
-  }, [isAuthenticated, user]);
+  }, [fetchCounts]);
 
   const handleLogout = () => {
     logout();
