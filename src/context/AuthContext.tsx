@@ -17,7 +17,8 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User; requires2FA?: boolean }>;
+  verifyOtp: (email: string, code: string) => Promise<{ success: boolean; error?: string; user?: User }>;
   register: (payload: { name: string; email: string; password: string; phone?: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   updateProfile: (name: string, email: string) => Promise<{ success: boolean; error?: string }>;
@@ -77,6 +78,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("RESPON ASLI BACKEND:", data);
 
       const isSuccess = data.success === true || data.status === "success" || (res.ok && (data.code >= 200 && data.code < 300));
+      const requires2FA = data.data?.requires2FA === true || data.requires2FA === true;
+
+      if (res.ok && requires2FA) {
+        setIsLoading(false);
+        return { success: false, requires2FA: true };
+      }
 
       if (res.ok && isSuccess) {
         const token = data.data?.access_token || data.data?.token || data.access_token || data.token;
@@ -116,6 +123,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       setIsLoading(false);
       return { success: false, error: "Terjadi kesalahan pada server saat login." };
+    }
+  };
+
+  const verifyOtp = async (email: string, code: string) => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/verify-otp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email, code })
+      });
+      const data = await res.json();
+      
+      const isSuccess = data.success === true || data.status === "success" || (res.ok && (data.code >= 200 && data.code < 300));
+
+      if (res.ok && isSuccess) {
+        const token = data.data?.access_token || data.data?.token || data.access_token || data.token;
+        const userData = data.data?.user || (data.data?.id ? data.data : null); 
+        
+        if (token) {
+          localStorage.setItem("studenthub_token", token);
+        }
+        
+        if (userData && userData.id) {
+          const finalUser = { ...userData, token };
+          setUser(finalUser);
+          setIsLoading(false);
+          return { success: true, user: finalUser };
+        } else if (token) {
+          const meRes = await fetch(`${API_URL}/users/me`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const meData = await meRes.json();
+          const isMeSuccess = meData.success === true || meData.status === "success" || (meRes.ok && (meData.code >= 200 && meData.code < 300));
+          if (isMeSuccess) {
+            const fetchedUser = meData.data?.user || meData.data;
+            const finalUser = { ...fetchedUser, token };
+            setUser(finalUser);
+            setIsLoading(false);
+            return { success: true, user: finalUser };
+          }
+        }
+
+        const fallbackUser = { ...userData, token };
+        setIsLoading(false);
+        return { success: true, user: fallbackUser };
+      } else {
+        setIsLoading(false);
+        return { success: false, error: data.message || "Kode OTP tidak valid." };
+      }
+    } catch (error) {
+      setIsLoading(false);
+      return { success: false, error: "Terjadi kesalahan pada server saat verifikasi OTP." };
     }
   };
 
@@ -187,7 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, register, logout, updateProfile }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, register, logout, updateProfile, verifyOtp }}>
       {children}
     </AuthContext.Provider>
   );

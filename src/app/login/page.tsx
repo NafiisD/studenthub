@@ -40,6 +40,8 @@ export default function LoginPage() {
         } else {
           router.push("/dashboard/customer");
         }
+      } else if (res.requires2FA) {
+        router.push(`/login/verify-2fa?email=${encodeURIComponent(email)}`);
       } else {
         const errText = res.error || "Login gagal.";
         if (errText.toLowerCase().includes("berhasil ditambahkan")) {
@@ -63,14 +65,14 @@ export default function LoginPage() {
   return (
     <div className="flex-1 flex flex-col justify-center items-center min-h-[80vh] px-4 py-12 relative">
       {/* Background radial highlight */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none -z-10"></div>
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-125 h-125 bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none -z-10"></div>
       
       {/* Card wrapper */}
       <div className="w-full max-w-md glass-panel rounded-2xl border border-white/5 p-8 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
         {/* Header */}
         <div className="text-center space-y-3 mb-8">
           <Link href="/" className="inline-flex items-center gap-2 group">
-            <div className="p-2 bg-gradient-to-tr from-cyan-500 to-indigo-500 rounded-lg animate-glow-indigo">
+            <div className="p-2 bg-linear-to-tr from-cyan-500 to-indigo-500 rounded-lg animate-glow-indigo">
               <Zap className="h-5 w-5 text-white" />
             </div>
             <span className="font-display font-bold text-xl text-white">
@@ -84,7 +86,7 @@ export default function LoginPage() {
         {/* Error Message */}
         {errorMsg && (
           <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs sm:text-sm flex items-start gap-2.5">
-            <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
             <span>{errorMsg}</span>
           </div>
         )}
@@ -140,7 +142,7 @@ export default function LoginPage() {
             disabled={isSubmitting}
             className="w-full relative group flex items-center justify-center gap-2 text-white font-semibold py-3.5 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all duration-300 hover:shadow-[0_0_20px_rgba(6,182,212,0.4)] disabled:opacity-50 cursor-pointer"
           >
-            <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-indigo-500"></span>
+            <span className="absolute inset-0 bg-linear-to-r from-cyan-500 to-indigo-500"></span>
             <span className="relative z-10 flex items-center gap-1.5 text-sm sm:text-base">
               {isSubmitting ? "Memproses..." : "Masuk"}
               {!isSubmitting && <ArrowRight className="h-4.5 w-4.5 group-hover:translate-x-1 transition-transform" />}
