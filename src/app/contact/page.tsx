@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Mail, MessageSquare, Send, CheckCircle2, User, AlertTriangle } from "lucide-react";
+import { Mail, MessageSquare, Send, CheckCircle2, User, AlertTriangle, Phone } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
 export default function ContactPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
   
   const [success, setSuccess] = useState(false);
@@ -21,7 +22,7 @@ export default function ContactPage() {
     setIsSubmitting(true);
 
     if (!name || !email || !message) {
-      setError("Mohon isi seluruh bidang formulir.");
+      setError("Mohon isi seluruh bidang formulir yang diwajibkan.");
       setIsSubmitting(false);
       return;
     }
@@ -31,7 +32,7 @@ export default function ContactPage() {
       const res = await fetch(`${API_URL}/contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, message }),
+        body: JSON.stringify({ name, email, phone, message }),
       });
       const data = await res.json();
       const isSuccess = data.success === true || data.status === "success" || (res.ok && data.code >= 200 && data.code < 300);
@@ -40,6 +41,7 @@ export default function ContactPage() {
         setSuccess(true);
         setName("");
         setEmail("");
+        setPhone("");
         setMessage("");
       } else {
         const errMsg = Array.isArray(data.message) ? data.message.join(", ") : (data.message || "Gagal mengirim pesan.");
@@ -94,9 +96,9 @@ export default function ContactPage() {
               </div>
 
               <div className="space-y-1">
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Respon API Rute</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Pesan</p>
                 <code className="text-xs text-cyan-400 font-mono bg-slate-950 px-2 py-1.5 rounded-lg border border-slate-900 block mt-1 text-center">
-                  POST /contacts
+                  Nantikan Update dari Kami!
                 </code>
               </div>
             </div>
@@ -165,6 +167,25 @@ export default function ContactPage() {
                   </div>
                 </div>
 
+                {/* Phone (New Field) */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
+                    Nomor Telepon <span className="text-slate-500 normal-case font-normal">(Opsional)</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                      <Phone className="h-4.5 w-4.5" />
+                    </span>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="081234567890"
+                      className="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-900/60 border border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-slate-100 placeholder-slate-650 text-sm transition-all focus:outline-none"
+                    />
+                  </div>
+                </div>
+
                 {/* Message */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
@@ -206,4 +227,4 @@ export default function ContactPage() {
       <Footer />
     </>
   );
-}
+} 
