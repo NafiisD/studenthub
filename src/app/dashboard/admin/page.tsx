@@ -59,6 +59,7 @@ interface Project {
   sourceCodeUrl?: string;
   students?: Student[];
   studentName?: string;
+  createdAt?: string;
 }
 
 interface Order {
@@ -68,6 +69,7 @@ interface Order {
   totalPrice: number;
   status: "PENDING" | "PAID" | "APPROVED" | "REJECTED" | string;
   receiptImage?: string;
+  createdAt?: string;
 }
 
 interface BankAccount {
@@ -306,10 +308,72 @@ export default function AdminDashboard() {
 
   // ─── Derived Metrics ──────────────────────────────────────────────
 
-  const totalRevenue = orders.filter(o => o.status === "APPROVED").reduce((s, o) => s + o.totalPrice, 0);
+  const approvedOrders = orders.filter(o => o.status === "APPROVED");
+  const totalRevenue = approvedOrders.reduce((s, o) => s + o.totalPrice, 0);
+  const totalPurchasedItems = approvedOrders.reduce((sum, order) => {
+    const itemCount = Array.isArray(order.items) && order.items.length > 0 ? order.items.length : 1;
+    return sum + itemCount;
+  }, 0);
   const pendingModerationCount = projects.filter(p => p.status === "DRAFT").length;
   const pendingOrdersCount = orders.filter(o => o.status === "PAID").length;
   const publishedProjectsCount = projects.filter(p => p.status === "PUBLISHED").length;
+
+  const formatCount = (value: number) =>
+    new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value);
+
+  const buildActivitySeries = (days: number) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const getDayKey = (value?: string) => {
+      if (!value) return null;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return null;
+      date.setHours(0, 0, 0, 0);
+      return date.toISOString().slice(0, 10);
+    };
+
+    const base = Array.from({ length: days }, (_, index) => {
+      const date = new Date(today);
+      date.setDate(today.getDate() - (days - 1 - index));
+      const key = date.toISOString().slice(0, 10);
+      return {
+        key,
+        label: date.toLocaleDateString("id-ID", { day: "2-digit", month: "short" }),
+        orders: 0,
+        projects: 0,
+        contacts: 0,
+      };
+    });
+
+    const bucket = new Map(base.map(entry => [entry.key, entry]));
+
+    orders.forEach(order => {
+      const key = getDayKey(order.createdAt);
+      const target = key ? bucket.get(key) : null;
+      if (target) target.orders += 1;
+    });
+
+    projects.forEach(project => {
+      const key = getDayKey(project.createdAt);
+      const target = key ? bucket.get(key) : null;
+      if (target) target.projects += 1;
+    });
+
+    contacts.forEach(contact => {
+      const key = getDayKey(contact.createdAt);
+      const target = key ? bucket.get(key) : null;
+      if (target) target.contacts += 1;
+    });
+
+    return base.map(entry => ({
+      ...entry,
+      total: entry.orders + entry.projects + entry.contacts,
+    }));
+  };
+
+  const activitySeries = buildActivitySeries(14);
+  const maxActivity = Math.max(1, ...activitySeries.map(item => item.total));
 
   // ─── Handlers ────────────────────────────────────────────────────
 
@@ -627,8 +691,8 @@ export default function AdminDashboard() {
               <p className="text-sm font-bold text-cyan-400 font-mono mt-0.5">{pendingOrdersCount} PAID</p>
             </div>
             <div className="flex-grow md:flex-grow-0 p-3 px-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center min-w-[110px]">
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Total Revenue</p>
-              <p className="text-sm font-bold text-emerald-400 font-mono mt-0.5">{formatPrice(totalRevenue)}</p>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Total Pembelian</p>
+              <p className="text-sm font-bold text-emerald-400 font-mono mt-0.5">{formatCount(totalPurchasedItems)}</p>
             </div>
           </div>
         </div>
@@ -689,8 +753,46 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
-                  <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Revenue (APPROVED)</p>
-                  <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">{formatPrice(totalRevenue)}</p>
+                  <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Pembelian Produk (APPROVED)</p>
+                  <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">{formatCount(totalPurchasedItems)}</p>
+                  <p className="text-[10px] text-slate-500 mt-2">Nilai transaksi disetujui: {formatPrice(totalRevenue)}</p>
+                </div>
+
+                <div className="p-4 rounded-xl border border-slate-900 bg-slate-950/40">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-white">Aktivitas Website 14 Hari Terakhir</p>
+                      <p className="text-[10px] text-slate-500">Gabungan order, proyek baru, dan pesan kontak.</p>
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] font-semibold text-slate-400">
+                      <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-cyan-400/80"></span>Order</span>
+                      <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-violet-400/80"></span>Proyek</span>
+                      <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-400/80"></span>Kontak</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-7 sm:grid-cols-14 gap-2 items-end h-28">
+                    {activitySeries.map(day => {
+                      const totalHeight = (day.total / maxActivity) * 100;
+                      const orderHeight = (day.orders / maxActivity) * 100;
+                      const projectHeight = (day.projects / maxActivity) * 100;
+                      const contactHeight = (day.contacts / maxActivity) * 100;
+                      return (
+                        <div key={day.key} className="flex flex-col items-center gap-2">
+                          <div
+                            className="w-full flex flex-col justify-end rounded-lg bg-slate-900/40 border border-slate-900 h-20 overflow-hidden"
+                            title={`${day.label}: ${day.total} aktivitas`}
+                            style={{ opacity: totalHeight === 0 ? 0.4 : 1 }}
+                          >
+                            <div className="w-full bg-emerald-400/70" style={{ height: `${contactHeight}%` }} />
+                            <div className="w-full bg-violet-400/70" style={{ height: `${projectHeight}%` }} />
+                            <div className="w-full bg-cyan-400/70" style={{ height: `${orderHeight}%` }} />
+                          </div>
+                          <span className="text-[9px] text-slate-500 font-mono">{day.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
