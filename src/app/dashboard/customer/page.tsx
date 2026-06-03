@@ -153,11 +153,19 @@ function CustomerDashboardContent() {
           }
         }
         
-        // Load Orders
+        // Load Orders (FIX: jangan tampilkan order milik customer lain)
         const oRes = await fetch(`${API_URL}/orders`, { headers });
         if (oRes.ok) {
           const oData = await oRes.json();
-          if (oData.data) setOrders(oData.data);
+          if (oData.data) {
+            // backend sekarang belum ada endpoint khusus, jadi filter berdasarkan userId
+            // sesuai interface Order: userId ada di payload
+            const myUserId = user?.id;
+            const filtered = Array.isArray(oData.data)
+              ? oData.data.filter((o: any) => !myUserId || o.userId === myUserId)
+              : [];
+            setOrders(filtered);
+          }
         }
       } catch (err) {
         console.error("Failed to fetch dashboard data", err);
