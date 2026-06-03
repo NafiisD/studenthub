@@ -68,6 +68,9 @@ function CustomerDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Loading overlay saat sync data dashboard (wishlist/cart/orders/bank + profile fields)
+  const [isFetchingDashboardData, setIsFetchingDashboardData] = useState(false);
+
   // Tab State
   const [activeTab, setActiveTab] = useState<"profile" | "cart" | "wishlist" | "orders">("profile");
 
@@ -138,6 +141,7 @@ function CustomerDashboardContent() {
   // Sync data function
   const syncData = async () => {
     if (user && user.role === "USER") {
+      setIsFetchingDashboardData(true);
       const token = user.token || localStorage.getItem("studenthub_token") || "";
       const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
       const headers = { Authorization: `Bearer ${token}` };
@@ -167,12 +171,8 @@ function CustomerDashboardContent() {
             setOrders(filtered);
           }
         }
-      } catch (err) {
-        console.error("Failed to fetch dashboard data", err);
-      }
-      
-      // Load Cart
-      try {
+
+        // Load Cart
         const cRes = await fetch(`${API_URL}/carts?_t=${Date.now()}`, { 
           headers,
           cache: 'no-store' 
@@ -187,9 +187,8 @@ function CustomerDashboardContent() {
             setCart([]);
           }
         }
-      } catch (err) {}
-      // Load Bank Accounts
-      try {
+
+        // Load Bank Accounts
         const bRes = await api.fetchActiveBankAccounts(token);
         if (bRes.data && Array.isArray(bRes.data)) {
           const fetchedBanks = bRes.data.map((b: any) => ({
@@ -206,17 +205,21 @@ function CustomerDashboardContent() {
         } else {
           setBankAccounts([]);
         }
-      } catch (err) {
-        setBankAccounts([]);
-      }
 
-      // Sync Edit Profile values
-      if (!profileName && !profileEmail) {
-        setProfileName(user.name);
-        setProfileEmail(user.email);
+        // Sync Edit Profile values
+        if (!profileName && !profileEmail) {
+          setProfileName(user.name);
+          setProfileEmail(user.email);
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard data", err);
+      } finally {
+        setIsFetchingDashboardData(false);
       }
     }
   };
+
+
 
   useEffect(() => {
     syncData();
@@ -437,6 +440,34 @@ function CustomerDashboardContent() {
       )}
 
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10 relative">
+        {/* Loading Overlay saat fetching data dashboard */}
+        {isFetchingDashboardData && (
+          <div className="absolute inset-0 z-40 bg-black/55 backdrop-blur-sm flex items-center justify-center">
+            <div className="glass-panel rounded-2xl border border-cyan-500/30 px-6 py-8 max-w-md w-[92%]">
+              <div className="flex items-center gap-4">
+                <div className="relative h-14 w-14 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border-4 border-slate-800/60" />
+                  <div className="absolute inset-2 rounded-full border-4 border-cyan-500 border-t-transparent animate-spin" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-sm sm:text-base">Memuat data dashboard...</p>
+                  <p className="text-slate-400 text-xs mt-1">Sedang mengambil wishlist, cart, order, dan rekening pembayaran.</p>
+                </div>
+              </div>
+
+              <div className="mt-5 h-2 w-full bg-slate-900/60 rounded-full overflow-hidden">
+                <div className="h-full w-1/2 bg-gradient-to-r from-cyan-500 to-indigo-500 animate-[loading-slide_1.2s_ease-in-out_infinite]" />
+              </div>
+            </div>
+
+            <style jsx>{`
+              @keyframes loading-slide {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(200%); }
+              }
+            `}</style>
+          </div>
+        )}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[300px] bg-cyan-500/5 rounded-full blur-[100px] pointer-events-none -z-10 animate-pulse-slow"></div>
 
         {/* User Greeting Dashboard Card */}

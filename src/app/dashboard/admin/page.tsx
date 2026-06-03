@@ -66,11 +66,18 @@ interface Order {
   id: number | string;
   orderCode?: string;
   items?: Array<{ title?: string; project?: { title?: string } }>;
+  // backend juga bisa mengirim item dengan field berbeda (projectName, price, etc.)
   totalPrice: number;
+  userId?: number;
+  user?: { name?: string; email?: string };
+  userName?: string;
   status: "PENDING" | "PAID" | "APPROVED" | "REJECTED" | string;
   receiptImage?: string;
+  receiptImages?: Array<any>;
+  paymentProofs?: Array<{ id?: any; fileUrl?: string; status?: string; adminNote?: string; createdAt?: string }>;
   createdAt?: string;
 }
+
 
 interface BankAccount {
   id: number | string;
@@ -90,13 +97,23 @@ interface Contact {
   createdAt?: string;
 }
 
-const normalizeList = (payload: any): any[] => {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.data)) return payload.data;
-  if (Array.isArray(payload?.items)) return payload.items;
-  if (Array.isArray(payload?.projects)) return payload.projects;
-  if (Array.isArray(payload?.orders)) return payload.orders;
-  if (Array.isArray(payload?.results)) return payload.results;
+  const normalizeList = (payload: any): any[] => {
+  // Handles several common response shapes: {data}, {data:{data}}, {items}, {projects}, etc.
+  const p = payload as any;
+  if (!p) return [];
+  if (Array.isArray(p)) return p;
+
+  if (Array.isArray(p.data)) return p.data;
+  if (Array.isArray(p.items)) return p.items;
+  if (Array.isArray(p.projects)) return p.projects;
+  if (Array.isArray(p.orders)) return p.orders;
+  if (Array.isArray(p.results)) return p.results;
+
+  // Sometimes nested: { data: { data: [...] } }
+  if (p.data && Array.isArray(p.data.data)) return p.data.data;
+  // Sometimes nested: { data: { items: [...] } }
+  if (p.data && Array.isArray(p.data.items)) return p.data.items;
+
   return [];
 };
 
@@ -131,7 +148,16 @@ export default function AdminDashboard() {
   const [viewProject, setViewProject] = useState<Project | null>(null);
   const [viewOrderReceipt, setViewOrderReceipt] = useState<Order | null>(null);
   const [verifyOrder, setVerifyOrder] = useState<Order | null>(null);
+
+  const [viewOrderReceiptCustomerName, setViewOrderReceiptCustomerName] = useState<string>("");
+  const [viewOrderReceiptCustomerEmail, setViewOrderReceiptCustomerEmail] = useState<string>("");
+
+  const [verifyOrderCustomerName, setVerifyOrderCustomerName] = useState<string>("");
+  const [verifyOrderCustomerEmail, setVerifyOrderCustomerEmail] = useState<string>("");
+
   const [viewContact, setViewContact] = useState<Contact | null>(null);
+
+
 
   // Add Project form
   const [showAddProject, setShowAddProject] = useState(false);
@@ -199,9 +225,33 @@ export default function AdminDashboard() {
     setLoadingOrders(true);
     try {
       const res = await api.fetchOrders(token);
-      if (res.success) setOrders(normalizeList(res.data));
-    } catch (err) { console.error("loadOrders", err); }
-    finally { setLoadingOrders(false); }
+      if (!res.success) return;
+
+      // backend sering mengirim bentuk: { data: [...] } atau { data: { data: [...] } }
+      const list = normalizeList(res.data);
+
+      const mapped = (Array.isArray(list) ? list : []).map((o: any) => {
+        const rawItems = o.items ?? o.orderItems ?? o.lineItems ?? [];
+        const normalizedItems = Array.isArray(rawItems)
+          ? rawItems.map((it: any) => ({
+              ...it,
+              title: it.title ?? it.project?.title ?? it.projectTitle ?? it.name ?? "",
+              project: it.project ?? { title: it.project?.title ?? it.projectTitle ?? it.title },
+            }))
+          : [];
+
+        return {
+          ...o,
+          items: normalizedItems,
+        };
+      });
+
+      setOrders(mapped);
+    } catch (err) {
+      console.error("loadOrders", err);
+    } finally {
+      setLoadingOrders(false);
+    }
   }, [token]);
 
   const loadCategories = useCallback(async () => {
@@ -429,8 +479,9 @@ export default function AdminDashboard() {
 
   const handleAddProjectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prjTitle || !prjDesc || !prjPrice || !prjSource) {
-      showToast("Mohon lengkapi semua bidang wajib.");
+    // URL Demo/Source Code tidak wajib (sesuai request & payload backend saat ini)
+    if (!prjTitle || !prjDesc || !prjPrice) {
+      showToast("Mohon lengkapi Judul, Deskripsi, dan Harga.");
       return;
     }
     setIsCreatingPrj(true);
@@ -439,11 +490,14 @@ export default function AdminDashboard() {
       fd.append("title", prjTitle);
       fd.append("description", prjDesc);
       fd.append("price", prjPrice);
-      fd.append("sourceCodeUrl", prjSource);
+      // demoUrl/sourceCodeUrl tidak dikirim karena backend saat ini tidak membutuhkan keduanya
       if (prjDemo) fd.append("demoUrl", prjDemo);
+      if (prjSource) fd.append("sourceCodeUrl", prjSource);
+
       if (prjCatId) fd.append("categoryId", prjCatId);
       if (prjStudentId) fd.append("studentIds", prjStudentId);
       if (prjThumbnailFile) fd.append("thumbnail", prjThumbnailFile);
+
 
       const res = await api.createProject(fd, token);
       if (res.success) {
@@ -851,11 +905,12 @@ export default function AdminDashboard() {
                           placeholder="https://demo.project.com" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[10px] text-slate-400 block font-semibold">URL Source Code *</label>
-                        <input type="url" required value={prjSource} onChange={e => setPrjSource(e.target.value)}
+                        <label className="text-[10px] text-slate-400 block font-semibold">URL Source Code</label>
+                        <input type="url" value={prjSource} onChange={e => setPrjSource(e.target.value)}
                           className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 focus:border-violet-500 text-xs text-white placeholder-slate-650 focus:outline-none"
                           placeholder="https://github.com/..." />
                       </div>
+
                       <div className="space-y-1">
                         <label className="text-[10px] text-slate-400 block font-semibold">Siswa</label>
                         <select value={prjStudentId} onChange={e => setPrjStudentId(e.target.value)}
@@ -973,31 +1028,128 @@ export default function AdminDashboard() {
                         {orders.map(order => (
                           <tr key={order.id} className="hover:bg-slate-900/10 transition-colors">
                             <td className="py-4 font-mono font-semibold text-white">{order.orderCode}</td>
-                            <td className="py-4">
+                          <td className="py-4">
                               <div className="max-w-[180px] truncate">
-                                {Array.isArray(order.items) ? order.items.map((i: any) => i.title || i.project?.title || "").join(", ") : "-"}
+                                {Array.isArray(order.items) ?
+                                  order.items
+                                    .map((i: any) => i.title || i.project?.title || i.projectName || i.name || i.project?.projectName || "")
+                                    .filter((x: string) => Boolean(x))
+                                    .join(", ")
+                                :
+                                  "-"}
                               </div>
                             </td>
                             <td className="py-4 font-mono font-bold">{formatPrice(order.totalPrice)}</td>
                             <td className="py-4 text-center font-mono text-[9px] font-bold">
                               {order.status === "PENDING" && <span className="text-yellow-400">PENDING</span>}
-                              {order.status === "PAID" && <span className="text-cyan-400 animate-pulse">PAID (VERIFY)</span>}
-                              {order.status === "APPROVED" && <span className="text-emerald-400">APPROVED</span>}
+                              {(order.status === "PAID" || order.status === "APPROVED") && (
+                                <span className="text-emerald-400">{order.status}</span>
+                              )}
+                              {(order.status === "WAITING_VERIFICATION" || order.status === "PENDING_PAYMENT") && (
+                                <span className="text-cyan-400 animate-pulse">{order.status}</span>
+                              )}
                               {order.status === "REJECTED" && <span className="text-rose-500">REJECTED</span>}
+                              {order.status === "CANCELLED" && <span className="text-slate-400">CANCELLED</span>}
+                              {!(["PENDING", "PAID", "APPROVED", "WAITING_VERIFICATION", "PENDING_PAYMENT", "REJECTED", "CANCELLED"].includes(order.status) ) && (
+                                <span className="text-slate-300">{order.status}</span>
+                              )}
                             </td>
                             <td className="py-4 text-right space-x-1">
-                              {order.receiptImage && (
-                                <button onClick={() => setViewOrderReceipt(order)}
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-900 border border-slate-800 text-[10px] text-indigo-400 hover:text-white transition-colors cursor-pointer font-semibold">
+                              {(order.status === "PAID" || order.status === "APPROVED") && (
+                                <button
+                                  onClick={async () => {
+                                    setViewOrderReceipt(order);
+                                    setViewOrderReceiptCustomerName("");
+                                    setViewOrderReceiptCustomerEmail("");
+
+                                    try {
+                                      const userId = (order as any).userId;
+                                      if (!userId) return;
+
+                                      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+                                      const res = await fetch(`${API_URL}/users/${userId}`, {
+                                        headers: {
+                                          Authorization: `Bearer ${token}`,
+                                        },
+                                      });
+
+                                      if (!res.ok) return;
+
+                                      const data = await res.json();
+                                      const userData = data?.data?.user || data?.data || data?.user;
+                                      setViewOrderReceiptCustomerName(userData?.name || "");
+                                      setViewOrderReceiptCustomerEmail(userData?.email || "");
+                                    } catch (e) {
+                                      setViewOrderReceiptCustomerName("");
+                                      setViewOrderReceiptCustomerEmail("");
+                                    }
+                                  }}
+
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-900 border border-slate-800 text-[10px] text-indigo-400 hover:text-white transition-colors cursor-pointer font-semibold"
+                                >
                                   <ImageIcon className="h-3.5 w-3.5" /> Bukti Bayar
                                 </button>
                               )}
-                              {order.status === "PAID" && (
-                                <button onClick={() => { setVerifyOrder(order); setAdminNote(""); }}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-violet-500 hover:bg-violet-600 text-white transition-all cursor-pointer text-[10px] font-semibold">
+
+
+                              {(order.status === "WAITING_VERIFICATION" || order.status === "PENDING_PAYMENT") && (
+                                <button
+                                  onClick={async () => {
+                                    setVerifyOrder(order);
+                                    setAdminNote("");
+
+                                    // Ambil info nama/email user dari GET /users/{id}
+                                    try {
+                                      const userId = (order as any).userId;
+                                      if (userId) {
+                                        const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+                                        const res = await fetch(`${API_URL}/users/${userId}`, {
+                                          headers: {
+                                            Authorization: `Bearer ${token}`,
+                                          },
+                                        });
+
+                                        if (res.ok) {
+                                          const data = await res.json();
+                                          const userData = data?.data?.user || data?.data || data?.user;
+                                          setVerifyOrderCustomerName(userData?.name || "");
+                                          setVerifyOrderCustomerEmail(userData?.email || "");
+                                        }
+                                      }
+                                    } catch {
+                                      setVerifyOrderCustomerName("");
+                                      setVerifyOrderCustomerEmail("");
+                                    }
+
+                                    // Ambil bukti pembayaran supaya modal verifikasi bisa menampilkan foto
+                                    try {
+                                      const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+                                      const proofRes = await fetch(`${API_URL}/payment/proof/${order.id}`, {
+                                        headers: {
+                                          Authorization: `Bearer ${token}`,
+                                        },
+                                      });
+
+                                      if (proofRes.ok) {
+                                        const proofData = await proofRes.json();
+                                        const proofs = proofData?.data;
+
+                                        if (Array.isArray(proofs)) {
+                                          setVerifyOrder((prev) => (prev ? { ...prev, paymentProofs: proofs } : prev));
+                                        }
+                                      }
+                                    } catch {
+                                      // ignore
+                                    }
+                                  }}
+
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-violet-500 hover:bg-violet-600 text-white transition-all cursor-pointer text-[10px] font-semibold"
+                                >
                                   Verifikasi Lunas
                                 </button>
                               )}
+
+                              {/* TODO: di modal verifikasi, ambil bukti pembayaran supaya foto tampil */}
                             </td>
                           </tr>
                         ))}
@@ -1418,9 +1570,10 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Modal 2: View Order Receipt */}
+      {/* Modal 2: View Order Receipt (Nota Pembayaran) */}
       {viewOrderReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+
           <div className="fixed inset-0" onClick={() => setViewOrderReceipt(null)}></div>
           <div className="relative w-full max-w-md rounded-2xl bg-slate-950 border border-slate-900 p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-10 space-y-5 text-center">
             <button onClick={() => setViewOrderReceipt(null)}
@@ -1428,14 +1581,102 @@ export default function AdminDashboard() {
               <X className="h-5 w-5" />
             </button>
             <div>
-              <h3 className="font-display font-semibold text-lg text-white">Bukti Transfer Pembayaran</h3>
-              <p className="text-[10px] text-slate-500 font-mono">Kode Order: {viewOrderReceipt.orderCode}</p>
+              <h3 className="font-display font-semibold text-lg text-white">Nota Pembayaran</h3>
+              <p className="text-[10px] text-slate-500 font-mono">INV-{viewOrderReceipt.orderCode}</p>
+
+              <p className="text-[10px] text-slate-500 font-mono mt-1">
+                Kode Order: {viewOrderReceipt.orderCode}
+              </p>
+
+              <div className="mt-3 grid grid-cols-2 gap-3 text-left">
+                <div className="space-y-1">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold">Diterbitkan Kepada</p>
+                  <p className="text-white font-semibold text-xs">{viewOrderReceiptCustomerName || "-"}</p>
+                  <p className="text-slate-400 text-[10px]">{viewOrderReceiptCustomerEmail || "-"}</p>
+                </div>
+                <div className="space-y-1 text-right">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold">Status</p>
+                  <p className={`text-xs font-bold ${
+                    viewOrderReceipt.status === "PAID" || viewOrderReceipt.status === "APPROVED"
+                      ? "text-emerald-400"
+                      : viewOrderReceipt.status === "WAITING_VERIFICATION" || viewOrderReceipt.status === "PENDING_PAYMENT"
+                      ? "text-cyan-400"
+                      : "text-slate-300"
+                  }`}>
+                    {viewOrderReceipt.status}
+                  </p>
+
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mt-2">Tanggal</p>
+                  <p className="text-slate-400 text-[10px]">
+                    {viewOrderReceipt.createdAt
+                      ? new Date(viewOrderReceipt.createdAt).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })
+                      : "-"}
+                  </p>
+                </div>
+              </div>
             </div>
-            {viewOrderReceipt.receiptImage ? (
-              <img src={viewOrderReceipt.receiptImage} alt="Bukti Transfer" className="max-w-full mx-auto rounded-xl border border-slate-800" />
-            ) : (
-              <div className="py-8 text-slate-500 text-sm">Tidak ada bukti transfer yang diunggah.</div>
-            )}
+
+
+            {(() => {
+              const receipt = viewOrderReceipt as any;
+
+              // berbagai kemungkinan bentuk response file bukti
+              const candidateUrls: Array<string | undefined> = [
+                receipt.receiptImage,
+                receipt.receiptImages?.[0]?.fileUrl,
+                receipt.receiptImages?.[0]?.url,
+                receipt.paymentProofs?.[0]?.fileUrl,
+                receipt.paymentProofs?.[0]?.url,
+                receipt.fileUrl,
+                receipt.url,
+              ];
+
+              const firstProofUrl = candidateUrls.find(Boolean) as string | undefined;
+
+              return (
+                <>
+                  <div className="mt-4 p-4 rounded-xl bg-slate-900/30 border border-slate-900">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Rincian Pembayaran</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                      <div className="space-y-1">
+                        <p className="text-slate-400">Total Tagihan</p>
+                        <p className="text-white font-mono font-semibold">
+                          {formatPrice(viewOrderReceipt.totalPrice)}
+                        </p>
+                      </div>
+                      <div className="space-y-1 text-right">
+                        <p className="text-slate-400">Status Order</p>
+                        <p className="text-white font-mono font-semibold">
+                          {viewOrderReceipt.status}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2">
+                      Bukti Pembayaran
+                    </p>
+
+                    {firstProofUrl ? (
+                      <img
+                        src={firstProofUrl}
+                        alt="Bukti Transfer"
+                        className="max-w-full mx-auto rounded-xl border border-slate-800"
+                      />
+                    ) : (
+                      <div className="py-8 text-slate-500 text-sm">Tidak ada bukti transfer yang diunggah.</div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+
+
             <button onClick={() => setViewOrderReceipt(null)}
               className="w-full py-2.5 rounded-xl border border-slate-850 text-slate-400 hover:text-white bg-slate-900/30 text-xs font-semibold cursor-pointer">
               Tutup
@@ -1456,11 +1697,56 @@ export default function AdminDashboard() {
             <div className="text-center">
               <h3 className="font-display font-semibold text-lg text-white">Verifikasi Pembayaran Transfer</h3>
               <p className="text-slate-550 text-[10px] font-mono mt-1">Kode Order: {verifyOrder.orderCode}</p>
+              {(verifyOrderCustomerName || verifyOrderCustomerEmail) && (
+                <p className="text-xs text-slate-400 mt-2">
+                  Dibayar oleh: <span className="text-white font-semibold">{verifyOrderCustomerName || "-"}</span>
+                  {verifyOrderCustomerEmail ? (
+                    <span className="text-slate-500"> ({verifyOrderCustomerEmail})</span>
+                  ) : null}
+                </p>
+              )}
             </div>
+
             <div className="p-4 rounded-xl bg-slate-950 border border-slate-900 flex justify-between items-center text-xs font-mono">
               <span className="text-slate-450 font-sans">Jumlah Tagihan:</span>
               <span className="font-bold text-white">{formatPrice(verifyOrder.totalPrice)}</span>
             </div>
+            {/* Bukti Pembayaran (agar muncul juga saat WAITING_VERIFICATION) */}
+            <div className="mt-2">
+              {(() => {
+                const receipt: any = verifyOrder;
+                const candidateUrls: Array<string | undefined> = [
+                  receipt.receiptImage,
+                  receipt.receiptImages?.[0]?.fileUrl,
+                  receipt.receiptImages?.[0]?.url,
+                  receipt.paymentProofs?.[0]?.fileUrl,
+                  receipt.paymentProofs?.[0]?.url,
+                  receipt.fileUrl,
+                  receipt.url,
+                ];
+                const firstProofUrl = candidateUrls.find(Boolean) as string | undefined;
+
+                return (
+                  <>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2">
+                      Bukti Pembayaran
+                    </p>
+                    {firstProofUrl ? (
+                      <img
+                        src={firstProofUrl}
+                        alt="Bukti Transfer"
+                        className="max-w-full mx-auto rounded-xl border border-slate-800"
+                      />
+                    ) : (
+                      <div className="py-6 text-center text-slate-500 text-xs">
+                        Belum ada bukti pembayaran.
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-400 block">Catatan Verifikasi Admin (adminNote):</label>
               <textarea rows={3} value={adminNote} onChange={e => setAdminNote(e.target.value)}
