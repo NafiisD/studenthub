@@ -4,20 +4,64 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { 
-  getProjects, saveProject, Project, getWishlists, toggleWishlist,
-  getCarts, removeFromCart, checkoutCart, getUserOrders, getActiveBankAccounts,
-  uploadPaymentProof, saveRating, Order, BankAccount, getRatingsForProject
-} from "@/data/mockData";
 import * as api from "@/lib/api";
 import { 
-  PlusCircle, Upload, Download, CreditCard, TrendingUp, 
-  Clock, CheckCircle2, XCircle, ExternalLink, Folder, 
+  PlusCircle, Upload, Download, CreditCard, TrendingUp,
+  Clock, CheckCircle2, XCircle, ExternalLink, Folder,
   Landmark, User, Mail, Lock, Heart, ShoppingCart, Trash2, ShieldCheck, AlertTriangle, FileText, Star, Search
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+
+// --- TYPESCRIPT INTERFACES ---
+interface Project {
+  id: number;
+  title: string;
+  slug: string;
+  description: string;
+  price: number | string;
+  thumbnail?: string;
+  mediaUrls: any;
+  status: string;
+  averageRating: number | string;
+  totalReviews: number;
+  categoryId: number;
+  studentName?: string;
+  university?: string;
+  category?: any;
+}
+
+interface OrderItem {
+  id: number;
+  orderId: number;
+  projectId?: number;
+  title: string;
+  price: number | string;
+  thumbnail?: string;
+  quantity: number;
+}
+
+interface Order {
+  id: number;
+  orderCode: string;
+  userId: number;
+  totalPrice: number | string;
+  status: string;
+  message?: string;
+  createdAt: string;
+  items: OrderItem[];
+}
+
+interface BankAccount {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  accountOwner?: string;
+  accountName?: string;
+  isActive: boolean;
+}
+// -----------------------------
 
 function CustomerDashboardContent() {
   const { user, isAuthenticated, isLoading, updateProfile } = useAuth();
@@ -57,7 +101,6 @@ function CustomerDashboardContent() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   
-
   // Edit Profile States
   const [profileName, setProfileName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
@@ -83,7 +126,6 @@ function CustomerDashboardContent() {
   // rating inputs
   const [ratingVal, setRatingVal] = useState(5);
   const [ratingReview, setRatingReview] = useState("");
-
 
   // Toast
   const [toastMessage, setToastMessage] = useState("");
@@ -583,12 +625,12 @@ function CustomerDashboardContent() {
                           </span>
                           <h4 className="font-display font-semibold text-white text-sm sm:text-base line-clamp-1">{project.title}</h4>
                           <p className="text-slate-500 text-[10px] sm:text-xs">Oleh: {project.studentName} | {project.university}</p>
-                          <p className="text-slate-300 font-bold font-mono text-sm pt-1">{formatPrice(project.price)}</p>
+                          <p className="text-slate-300 font-bold font-mono text-sm pt-1">{formatPrice(Number(project.price))}</p>
                         </div>
 
                         <div className="flex gap-2">
                           <button
-                            onClick={() => handleRemoveWishlist(project.id)}
+                            onClick={() => handleRemoveWishlist(String(project.id))}
                             className="p-2.5 rounded-lg border border-slate-850 bg-slate-900/30 text-rose-455 hover:text-white hover:bg-rose-500/20 transition-colors cursor-pointer"
                             title="Hapus dari Wishlist"
                           >
@@ -652,9 +694,9 @@ function CustomerDashboardContent() {
                             </div>
                             
                             <div className="flex items-center gap-4">
-                              <span className="font-bold text-white font-mono text-xs sm:text-sm">{formatPrice(item.price)}</span>
+                              <span className="font-bold text-white font-mono text-xs sm:text-sm">{formatPrice(Number(item.price))}</span>
                               <button
-                                onClick={() => handleRemoveCart(item.id)}
+                                onClick={() => handleRemoveCart(String(item.id))}
                                 className="p-2 rounded-lg hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-all cursor-pointer hover:scale-105"
                                 title="Hapus"
                               >
@@ -687,7 +729,7 @@ function CustomerDashboardContent() {
                         <div className="flex justify-between items-center text-sm">
                           <span className="text-slate-300 font-medium">Total Harga:</span>
                           <span className="font-bold text-cyan-400 font-mono text-base">
-                            {formatPrice(cart.reduce((s, item) => s + item.price, 0))}
+                            {formatPrice(cart.reduce((s, item) => s + Number(item.price), 0))}
                           </span>
                         </div>
                       </div>
@@ -786,7 +828,7 @@ function CustomerDashboardContent() {
                               </div>
                               <span className="text-[10px] text-slate-500 block mt-0.5">{order.createdAt}</span>
                             </td>
-                            <td className="py-4 font-mono font-bold">{formatPrice(order.totalPrice)}</td>
+                            <td className="py-4 font-mono font-bold">{formatPrice(Number(order.totalPrice))}</td>
                             <td className="py-4 text-center">
                               {(order.status === "PENDING" || order.status === "PENDING_PAYMENT") && (
                                 <span className="inline-flex px-2 py-0.5 rounded text-[9px] font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">Belum Bayar</span>
@@ -928,14 +970,14 @@ function CustomerDashboardContent() {
                     {viewBillOrder.items.map((item: any, idx: number) => (
                       <tr key={idx}>
                         <td className="py-2.5 px-3 text-slate-300 font-medium">{item.title}</td>
-                        <td className="py-2.5 px-3 font-mono text-slate-400 text-right">{formatPrice(item.price)}</td>
+                        <td className="py-2.5 px-3 font-mono text-slate-400 text-right">{formatPrice(Number(item.price))}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot className="bg-slate-900/80 border-t border-slate-800">
                     <tr>
                       <td className="py-3 px-3 text-slate-400 font-semibold text-right">Total Tagihan:</td>
-                      <td className="py-3 px-3 font-bold text-white font-mono text-right text-sm">{formatPrice(viewBillOrder.totalPrice)}</td>
+                      <td className="py-3 px-3 font-bold text-white font-mono text-right text-sm">{formatPrice(Number(viewBillOrder.totalPrice))}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1017,7 +1059,7 @@ function CustomerDashboardContent() {
 
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-900 flex justify-between items-center text-xs sm:text-sm text-white font-mono">
                 <span className="text-slate-450 font-sans">Jumlah Transfer:</span>
-                <span className="font-bold text-cyan-400">{formatPrice(uploadProofOrder.totalPrice)}</span>
+                <span className="font-bold text-cyan-400">{formatPrice(Number(uploadProofOrder.totalPrice))}</span>
               </div>
 
               <div className="space-y-1">

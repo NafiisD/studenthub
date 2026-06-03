@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import { useRouter } from "next/navigation"; // <-- INI YANG DITAMBAHKAN
 import { useAuth } from "@/context/AuthContext";
 import { 
   Search, SlidersHorizontal, ArrowUpRight, Globe, Brain, 
@@ -55,6 +56,7 @@ const getIcon = (category: string) => {
 
 function MarketplaceContent() {
   const { user, isAuthenticated } = useAuth();
+  const router = useRouter(); // <-- INI YANG DITAMBAHKAN
   
   // State variables menggunakan tipe data asli backend
   const [projects, setProjects] = useState<Project[]>([]);

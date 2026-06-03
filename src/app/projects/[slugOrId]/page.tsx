@@ -2,7 +2,6 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { Project, Rating } from "@/data/mockData";
 import * as api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { 
@@ -12,6 +11,58 @@ import {
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+
+// --- TYPESCRIPT INTERFACES ---
+interface Batch {
+  id: string | number;
+  year: string | number;
+}
+
+interface Student {
+  id: string | number;
+  name: string;
+  batch?: Batch;
+}
+
+interface Category {
+  id: string | number;
+  name?: string;
+  title?: string;
+  slug: string;
+}
+
+interface Rating {
+  id: number | string;
+  score: number;
+  rating?: number;
+  comment?: string;
+  review?: string;
+  createdAt: string;
+  userName?: string;
+  user?: {
+    name: string;
+  };
+}
+
+interface Project {
+  id: string | number;
+  title: string;
+  description: string;
+  thumbnail?: string;
+  mediaUrls?: string[];
+  price: number | string;
+  university?: string;
+  studentName?: string;
+  averageRating: number | string;
+  totalReviews?: number;
+  wishlistCount?: number;
+  slug?: string;
+  status?: string;
+  category?: string | Category;
+  students?: Student[];
+  ratings?: Rating[];
+}
+// -----------------------------
 
 const getIcon = (category: string) => {
   const norm = category.toLowerCase();
@@ -231,12 +282,12 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const formatPrice = (price: number) => {
+  const formatPrice = (price: number | string) => {
     return new Intl.NumberFormat("id-ID", {
       style: "currency",
       currency: "IDR",
       minimumFractionDigits: 0
-    }).format(price);
+    }).format(Number(price));
   };
 
   if (loading) {
@@ -330,8 +381,8 @@ export default function ProjectDetailPage() {
               <div className="flex justify-between items-center flex-wrap gap-2">
                 <div className="flex gap-2">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs font-semibold text-slate-300">
-                    {getIcon(typeof project.category === "object" ? project.category.name : project.category)}
-                    {typeof project.category === "object" ? project.category.name : project.category}
+                    {getIcon(typeof project.category === "object" ? (project.category?.name || "") : (project.category || ""))}
+                    {typeof project.category === "object" ? project.category?.name : project.category}
                   </span>
                   {project.status === "DRAFT" && (
                     <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs font-semibold text-amber-400">
@@ -342,7 +393,7 @@ export default function ProjectDetailPage() {
 
                 <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-850 px-2.5 py-1 rounded-lg text-xs font-bold text-white font-mono">
                   <Star className="h-4 w-4 text-amber-400 fill-amber-400" />
-                  <span>{project.averageRating > 0 ? `${project.averageRating} / 5` : "Belum ada Rating"}</span>
+                  <span>{Number(project.averageRating) > 0 ? `${project.averageRating} / 5` : "Belum ada Rating"}</span>
                 </div>
               </div>
 
