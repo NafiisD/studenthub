@@ -159,27 +159,6 @@ export default function LoginPage() {
             </Link>
           </p>
         </div>
-
-        {/* Demo Credentials Helper Box */}
-        <div className="mt-8 pt-6 border-t border-slate-800/80 space-y-2">
-          <p className="text-[11px] font-bold text-cyan-500 uppercase tracking-widest text-center">Akun Demo (Klik untuk Isi):</p>
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <button
-              onClick={() => handleQuickLogin("mahasiswa@studenthub.id", "student123")}
-              className="p-2 rounded bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-left transition-colors cursor-pointer"
-            >
-              <p className="font-semibold text-white">User Biasa (USER)</p>
-              <p className="text-slate-500">mahasiswa@studenthub.id</p>
-            </button>
-            <button
-              onClick={() => handleQuickLogin("admin@studenthub.id", "admin123")}
-              className="p-2 rounded bg-slate-900 border border-slate-800 hover:border-violet-500/30 text-left transition-colors cursor-pointer"
-            >
-              <p className="font-semibold text-white">Admin (ADMIN)</p>
-              <p className="text-slate-500">admin@studenthub.id</p>
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
